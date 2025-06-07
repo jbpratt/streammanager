@@ -29,6 +29,7 @@ type entry struct {
 }
 
 type streamManager struct {
+	dest    string
 	mu      sync.RWMutex
 	running bool
 	ctx     context.Context
@@ -42,15 +43,16 @@ type streamManager struct {
 	currentEntry  *entry
 }
 
-func newStreamManager() (*streamManager, error) {
+func newStreamManager(destination string) (*streamManager, error) {
 	return &streamManager{
+		dest:        destination,
 		mu:          sync.RWMutex{},
 		queue:       make([]entry, 0),
 		queueNotify: make(chan struct{}, 1),
 	}, nil
 }
 
-func (s *streamManager) run(ctx context.Context, dest string) error {
+func (s *streamManager) run(ctx context.Context) error {
 	s.mu.Lock()
 	if s.running {
 		s.mu.Unlock()
@@ -74,8 +76,8 @@ func (s *streamManager) run(ctx context.Context, dest string) error {
 	eg, _ := errgroup.WithContext(s.ctx)
 
 	eg.Go(func() error {
-		log.Printf("Starting RTMP stream reader to %s", dest)
-		if err := readFromFIFO(s.ctx, fifoPath, dest); err != nil {
+		log.Printf("Starting RTMP stream reader to %s", s.dest)
+		if err := readFromFIFO(s.ctx, fifoPath, s.dest); err != nil {
 			return fmt.Errorf("failed to read from fifo: %w", err)
 		}
 		return nil
@@ -260,7 +262,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	sm, err := newStreamManager()
+	sm, err := newStreamManager(*dest)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -273,8 +275,8 @@ func main() {
 		}
 
 		go func() {
-			if err := sm.run(ctx, *dest); err != nil {
-				log.Printf("Stream manager error: %v", err)
+			if err := sm.run(ctx); err != nil {
+				panic(fmt.Errorf("running stream manager: %w", err))
 			}
 		}()
 
