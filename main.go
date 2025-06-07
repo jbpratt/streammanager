@@ -221,6 +221,8 @@ func writeToFIFO(ctx context.Context, source string) error {
 	if err != nil {
 		return err
 	}
+	defer fifo.Close()
+
 	args := []string{
 		"-hide_banner",
 		"-i", source,
