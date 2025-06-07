@@ -24,8 +24,8 @@ import (
 const fifoPath = "/tmp/streampipe.fifo"
 
 type entry struct {
-	ID   string
-	File string
+	id   string
+	file string
 }
 
 type streamManager struct {
@@ -99,12 +99,12 @@ func (s *streamManager) run(ctx context.Context, dest string) error {
 				s.currentCtx, s.currentCancel = context.WithCancel(s.ctx)
 				s.mu.Unlock()
 
-				log.Printf("Processing file: %s (ID: %s)", entry.File, entry.ID)
-				if err := writeToFIFO(s.currentCtx, entry.File); err != nil {
+				log.Printf("Processing file: %s (id: %s)", entry.file, entry.id)
+				if err := writeToFIFO(s.currentCtx, entry.file); err != nil {
 					if errors.Is(err, context.Canceled) {
-						log.Printf("Processing of %s was cancelled (ID: %s)", entry.File, entry.ID)
+						log.Printf("Processing of %s was cancelled (id: %s)", entry.file, entry.id)
 					} else {
-						log.Printf("Failed to write %s to fifo: %v", entry.File, err)
+						log.Printf("Failed to write %s to fifo: %v", entry.file, err)
 					}
 					s.mu.Lock()
 					s.currentEntry = nil
@@ -113,7 +113,7 @@ func (s *streamManager) run(ctx context.Context, dest string) error {
 					continue
 				}
 
-				log.Printf("Successfully wrote %s to fifo", entry.File)
+				log.Printf("Successfully wrote %s to fifo", entry.file)
 				s.mu.Lock()
 				s.currentEntry = nil
 				s.currentCancel = nil
@@ -139,7 +139,7 @@ func (s *streamManager) enqueue(file string) string {
 	defer s.mu.Unlock()
 
 	id := fmt.Sprintf("%d", time.Now().UnixNano())
-	entry := entry{ID: id, File: file}
+	entry := entry{id: id, file: file}
 	s.queue = append(s.queue, entry)
 
 	select {
@@ -155,7 +155,7 @@ func (s *streamManager) dequeue(id string) bool {
 	defer s.mu.Unlock()
 
 	for i, entry := range s.queue {
-		if entry.ID == id {
+		if entry.id == id {
 			s.queue = slices.Delete(s.queue, i, i+1)
 			return true
 		}
@@ -183,8 +183,8 @@ func (s *streamManager) status() map[string]any {
 
 	if s.currentEntry != nil {
 		status["playing"] = map[string]string{
-			"id":   s.currentEntry.ID,
-			"file": s.currentEntry.File,
+			"id":   s.currentEntry.id,
+			"file": s.currentEntry.file,
 		}
 	}
 
@@ -238,7 +238,6 @@ func writeToFIFO(ctx context.Context, source string) error {
 func readFromFIFO(ctx context.Context, fifo string, dest string) error {
 	args := []string{
 		"-hide_banner",
-		"-loglevel", "warning",
 		"-re",
 		"-i", fifo,
 		"-c", "copy",
@@ -302,7 +301,7 @@ func main() {
 		}
 
 		id := sm.enqueue(file)
-		log.Printf("File %s added to queue with ID %s", file, id)
+		log.Printf("file %s added to queue with id %s", file, id)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{
@@ -327,15 +326,15 @@ func main() {
 		})
 	})
 
-	mux.HandleFunc("/queue/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/dequeue/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
-		id := strings.TrimPrefix(r.URL.Path, "/queue/")
+		id := strings.TrimPrefix(r.URL.Path, "/dequeue/")
 		if id == "" {
-			http.Error(w, "Missing queue entry ID", http.StatusBadRequest)
+			http.Error(w, "Missing queue entry id", http.StatusBadRequest)
 			return
 		}
 
