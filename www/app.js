@@ -3,7 +3,6 @@ class StreamManager {
         this.isRunning = false;
         this.player = null;
         this.initEventListeners();
-        this.initVideoPlayer();
     }
 
     initEventListeners() {
@@ -22,30 +21,6 @@ class StreamManager {
 
         // Auto-refresh queue every 5 seconds
         setInterval(() => this.getQueue(), 5000);
-    }
-
-    initVideoPlayer() {
-        // Wait for Video.js to be available
-        if (typeof videojs !== 'undefined') {
-            this.player = videojs('previewVideo', {
-                fluid: true,
-                responsive: true,
-                html5: {
-                    hls: {
-                        enableLowInitialPlaylist: true,
-                        smoothQualityChange: true,
-                        overrideNative: true
-                    }
-                }
-            });
-
-            this.player.ready(() => {
-                console.log('Video.js player is ready');
-            });
-        } else {
-            // Retry after a short delay if Video.js isn't loaded yet
-            setTimeout(() => this.initVideoPlayer(), 100);
-        }
     }
 
     toggle() {
