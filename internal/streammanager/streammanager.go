@@ -353,7 +353,7 @@ func (s *StreamManager) writeToFIFO(ctx context.Context, source string, overlay 
 
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 	cmd.Stdout = fifo
-	// cmd.Stderr = os.Stderr
+	cmd.Stderr = os.Stderr
 
 	s.logger.Debug("Running ffmpeg write command", zap.Stringer("cmd", cmd))
 

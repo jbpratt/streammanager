@@ -20,6 +20,7 @@ import (
 
 // TODO: multistream to a local server to provide a preview
 // TODO: allow setting subtitles in the overlay options
+// TODO: allow starting a file from a particular timestamp
 
 func main() {
 	addr := flag.String("http-addr", ":8080", "server address")
