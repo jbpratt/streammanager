@@ -41,7 +41,6 @@ type Config struct {
 	Encoder          string `json:"encoder"`
 	Preset           string `json:"preset"`
 	RTMPAddr         string `json:"rtmpAddr"`
-	ProgressEndpoint string `json:"progressEndpoint"`
 	LogLevel         string `json:"logLevel"`
 	KeyframeInterval string `json:"keyframeInterval"` // GOP size in frames, e.g. "60"
 }
