@@ -14,11 +14,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// TODO: write tests using the rtmp server
 // TODO: multistream to a local server to provide a preview
-// TODO: config option for h265
-// TODO: improve logging and write ffmpeg outputs to files for better debugging
-// TODO: should we establish a ws endpoint for status/progress? why is it not updating
 // TODO: allow setting subtitles in the overlay options
 
 func main() {
