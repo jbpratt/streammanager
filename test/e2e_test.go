@@ -121,9 +121,9 @@ func TestEndToEnd(t *testing.T) {
 
 	// Test 2: Enqueue test file
 	t.Run("enqueue_file", func(t *testing.T) {
-		reqBody := map[string]interface{}{
+		reqBody := map[string]any{
 			"file": testFile,
-			"overlay": map[string]interface{}{
+			"overlay": map[string]any{
 				"showFilename": true,
 				"position":     "bottom-right",
 				"fontSize":     24,
@@ -176,12 +176,12 @@ func TestEndToEnd(t *testing.T) {
 			t.Fatalf("Expected status 200, got %d", resp.StatusCode)
 		}
 
-		var queueStatus map[string]interface{}
+		var queueStatus map[string]any
 		if err := json.NewDecoder(resp.Body).Decode(&queueStatus); err != nil {
 			t.Fatalf("Failed to decode queue status: %v", err)
 		}
 
-		status := queueStatus["status"].(map[string]interface{})
+		status := queueStatus["status"].(map[string]any)
 
 		if !status["running"].(bool) {
 			t.Fatal("Expected stream manager to be running")
@@ -191,7 +191,7 @@ func TestEndToEnd(t *testing.T) {
 
 		// Check if file is being processed
 		if playing, exists := status["playing"]; exists {
-			playingMap := playing.(map[string]interface{})
+			playingMap := playing.(map[string]any)
 			logger.Info("Currently playing file",
 				zap.String("file", playingMap["file"].(string)),
 				zap.String("id", playingMap["id"].(string)))
@@ -206,7 +206,7 @@ func TestEndToEnd(t *testing.T) {
 		progressUpdates := 0
 		maxChecks := 20
 
-		for i := 0; i < maxChecks; i++ {
+		for range maxChecks {
 			resp, err := http.Get("http://localhost:8081/progress")
 			if err != nil {
 				t.Fatalf("Failed to get progress: %v", err)
@@ -217,7 +217,7 @@ func TestEndToEnd(t *testing.T) {
 				t.Fatalf("Expected status 200 for progress, got %d", resp.StatusCode)
 			}
 
-			var progressResp map[string]interface{}
+			var progressResp map[string]any
 			if err := json.NewDecoder(resp.Body).Decode(&progressResp); err != nil {
 				t.Fatalf("Failed to decode progress response: %v", err)
 			}
@@ -225,7 +225,7 @@ func TestEndToEnd(t *testing.T) {
 			hasProgress := progressResp["hasProgress"].(bool)
 			if hasProgress {
 				progressUpdates++
-				progress := progressResp["progress"].(map[string]interface{})
+				progress := progressResp["progress"].(map[string]any)
 
 				// Log progress details
 				logger.Info("Progress update received",
@@ -284,12 +284,12 @@ func TestEndToEnd(t *testing.T) {
 		}
 		defer resp.Body.Close()
 
-		var queueStatus map[string]interface{}
+		var queueStatus map[string]any
 		if err := json.NewDecoder(resp.Body).Decode(&queueStatus); err != nil {
 			t.Fatalf("Failed to decode final queue status: %v", err)
 		}
 
-		status := queueStatus["status"].(map[string]interface{})
+		status := queueStatus["status"].(map[string]any)
 
 		if status["running"].(bool) {
 			logger.Info("Stream manager is still running (may be shutting down)")
@@ -314,7 +314,7 @@ func TestEndToEnd(t *testing.T) {
 				t.Fatalf("Expected status 200 for WebRTC status, got %d", resp.StatusCode)
 			}
 
-			var status map[string]interface{}
+			var status map[string]any
 			if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
 				t.Fatalf("Failed to decode WebRTC status: %v", err)
 			}
@@ -484,9 +484,9 @@ a=rtpmap:96 H264/90000`
 
 		// Test enqueue with server file path
 		t.Run("enqueue_server_file", func(t *testing.T) {
-			reqBody := map[string]interface{}{
+			reqBody := map[string]any{
 				"file": "big_buck_bunny_1080p_h264.mov", // Relative path - should resolve against file directory
-				"overlay": map[string]interface{}{
+				"overlay": map[string]any{
 					"showFilename": true,
 					"position":     "bottom-right",
 					"fontSize":     24,
@@ -517,7 +517,7 @@ a=rtpmap:96 H264/90000`
 			// The resolved file path should be absolute and include the test directory
 			expectedPath := filepath.Join(testDir, "big_buck_bunny_1080p_h264.mov")
 			expectedAbsPath, _ := filepath.Abs(expectedPath)
-			
+
 			if result["file"] != expectedAbsPath {
 				t.Fatalf("Expected absolute file path %s, got %s", expectedAbsPath, result["file"])
 			}
@@ -537,7 +537,7 @@ a=rtpmap:96 H264/90000`
 				t.Fatalf("Expected status 200 for file listing, got %d", resp.StatusCode)
 			}
 
-			var result map[string]interface{}
+			var result map[string]any
 			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 				t.Fatalf("Failed to decode file listing response: %v", err)
 			}
@@ -550,13 +550,13 @@ a=rtpmap:96 H264/90000`
 				t.Fatal("Expected 'files' field in response")
 			}
 
-			files := result["files"].([]interface{})
+			files := result["files"].([]any)
 			logger.Info("Listed files", zap.Int("count", len(files)))
 
 			// Should contain our test video file
 			foundTestFile := false
 			for _, file := range files {
-				fileMap := file.(map[string]interface{})
+				fileMap := file.(map[string]any)
 				if strings.Contains(fileMap["name"].(string), "big_buck_bunny") {
 					foundTestFile = true
 					// Validate file info structure
@@ -585,7 +585,7 @@ a=rtpmap:96 H264/90000`
 				t.Fatalf("Expected status 200 for file listing with path, got %d", resp.StatusCode)
 			}
 
-			var result map[string]interface{}
+			var result map[string]any
 			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 				t.Fatalf("Failed to decode file listing response: %v", err)
 			}
@@ -738,7 +738,7 @@ a=rtpmap:96 H264/90000`
 		}
 		defer resp.Body.Close()
 
-		var status map[string]interface{}
+		var status map[string]any
 		if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
 			t.Fatalf("Failed to decode WebRTC status: %v", err)
 		}
