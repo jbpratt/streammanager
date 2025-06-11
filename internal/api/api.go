@@ -4,30 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jbpratt/streammanager/internal/streammanager"
 	"go.uber.org/zap"
 )
-
-type progressData struct {
-	Frame      int64     `json:"frame"`
-	Fps        float64   `json:"fps"`
-	Bitrate    string    `json:"bitrate"`
-	TotalSize  int64     `json:"total_size"`
-	OutTimeUs  int64     `json:"out_time_us"`
-	OutTime    string    `json:"out_time"`
-	DupFrames  int64     `json:"dup_frames"`
-	DropFrames int64     `json:"drop_frames"`
-	Speed      string    `json:"speed"`
-	Progress   string    `json:"progress"`
-	Timestamp  time.Time `json:"timestamp"`
-}
 
 type Server struct {
 	sm       *streammanager.StreamManager
@@ -49,64 +33,6 @@ func New(logger *zap.Logger, rtmpAddr string) (*Server, error) {
 
 func (s *Server) StreamManager() *streammanager.StreamManager {
 	return s.sm
-}
-
-func parseProgressData(body string) progressData {
-	data := progressData{
-		Timestamp: time.Now(),
-	}
-
-	lines := strings.SplitSeq(body, "\n")
-	for line := range lines {
-		if line == "" {
-			continue
-		}
-
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-
-		key := strings.TrimSpace(parts[0])
-		value := strings.TrimSpace(parts[1])
-
-		switch key {
-		case "frame":
-			if v, err := strconv.ParseInt(value, 10, 64); err == nil {
-				data.Frame = v
-			}
-		case "fps":
-			if v, err := strconv.ParseFloat(value, 64); err == nil {
-				data.Fps = v
-			}
-		case "bitrate":
-			data.Bitrate = value
-		case "total_size":
-			if v, err := strconv.ParseInt(value, 10, 64); err == nil {
-				data.TotalSize = v
-			}
-		case "out_time_us":
-			if v, err := strconv.ParseInt(value, 10, 64); err == nil {
-				data.OutTimeUs = v
-			}
-		case "out_time":
-			data.OutTime = value
-		case "dup_frames":
-			if v, err := strconv.ParseInt(value, 10, 64); err == nil {
-				data.DupFrames = v
-			}
-		case "drop_frames":
-			if v, err := strconv.ParseInt(value, 10, 64); err == nil {
-				data.DropFrames = v
-			}
-		case "speed":
-			data.Speed = value
-		case "progress":
-			data.Progress = value
-		}
-	}
-
-	return data
 }
 
 func (s *Server) logMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -144,41 +70,13 @@ func (rw *responseWriter) WriteHeader(code int) {
 }
 
 func (s *Server) SetupRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/progress", s.logMiddleware(s.handleProgress))
 	mux.HandleFunc("/start", s.logMiddleware(s.handleStart))
 	mux.HandleFunc("/enqueue", s.logMiddleware(s.handleEnqueue))
 	mux.HandleFunc("/queue", s.logMiddleware(s.handleQueue))
 	mux.HandleFunc("/dequeue/", s.logMiddleware(s.handleDequeue))
 	mux.HandleFunc("/skip", s.logMiddleware(s.handleSkip))
 	mux.HandleFunc("/stop", s.logMiddleware(s.handleStop))
-}
-
-func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		s.logger.Warn("Invalid method for /progress endpoint", zap.String("method", r.Method))
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		s.logger.Error("Failed to read request body", zap.Error(err))
-		http.Error(w, "Error reading body", http.StatusBadRequest)
-		return
-	}
-	defer r.Body.Close()
-
-	progress := parseProgressData(string(body))
-
-	s.logger.Debug("Progress update",
-		zap.Int64("frame", progress.Frame),
-		zap.Float64("fps", progress.Fps),
-		zap.String("bitrate", progress.Bitrate),
-		zap.String("speed", progress.Speed),
-		zap.String("status", progress.Progress))
-
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, "OK")
+	mux.HandleFunc("/progress", s.logMiddleware(s.handleProgress))
 }
 
 func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
@@ -343,4 +241,20 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 		s.logger.Warn("Stop requested but stream manager not running")
 		http.Error(w, "Stream manager not running", http.StatusBadRequest)
 	}
+}
+
+func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.logger.Warn("Invalid method for /progress endpoint", zap.String("method", r.Method))
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	progress, hasProgress := s.sm.GetLatestProgress()
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"hasProgress": hasProgress,
+		"progress":    progress,
+	})
 }

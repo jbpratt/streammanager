@@ -180,11 +180,70 @@ func TestEndToEnd(t *testing.T) {
 		}
 	})
 
-	// Test 4: Let it process for a bit then stop
+	// Test 4: Check progress updates during processing
+	t.Run("check_progress", func(t *testing.T) {
+		// Wait for processing to start
+		time.Sleep(2 * time.Second)
+		
+		progressUpdates := 0
+		maxChecks := 20
+		
+		for i := 0; i < maxChecks; i++ {
+			resp, err := http.Get("http://localhost:8081/progress")
+			if err != nil {
+				t.Fatalf("Failed to get progress: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("Expected status 200 for progress, got %d", resp.StatusCode)
+			}
+
+			var progressResp map[string]interface{}
+			if err := json.NewDecoder(resp.Body).Decode(&progressResp); err != nil {
+				t.Fatalf("Failed to decode progress response: %v", err)
+			}
+
+			hasProgress := progressResp["hasProgress"].(bool)
+			if hasProgress {
+				progressUpdates++
+				progress := progressResp["progress"].(map[string]interface{})
+				
+				// Log progress details
+				logger.Info("Progress update received",
+					zap.Int64("frame", int64(progress["frame"].(float64))),
+					zap.Float64("fps", progress["fps"].(float64)),
+					zap.String("bitrate", progress["bitrate"].(string)),
+					zap.String("out_time", progress["out_time"].(string)),
+					zap.String("speed", progress["speed"].(string)))
+				
+				// Validate progress data structure
+				if _, ok := progress["frame"]; !ok {
+					t.Fatal("Expected frame field in progress data")
+				}
+				if _, ok := progress["fps"]; !ok {
+					t.Fatal("Expected fps field in progress data")
+				}
+				if _, ok := progress["timestamp"]; !ok {
+					t.Fatal("Expected timestamp field in progress data")
+				}
+			}
+			
+			time.Sleep(500 * time.Millisecond)
+		}
+		
+		if progressUpdates == 0 {
+			t.Fatal("Expected to receive at least one progress update")
+		}
+		
+		logger.Info("Progress validation completed", zap.Int("total_updates", progressUpdates))
+	})
+
+	// Test 5: Let it process for a bit then stop
 	t.Run("process_and_stop", func(t *testing.T) {
-		// Let it process for 10 seconds
-		logger.Info("Letting file process for 10 seconds")
-		time.Sleep(10 * time.Second)
+		// Let it process for 5 more seconds after progress check
+		logger.Info("Letting file process for 5 more seconds")
+		time.Sleep(5 * time.Second)
 
 		// Stop streaming
 		resp, err := http.Post("http://localhost:8081/stop", "application/json", nil)

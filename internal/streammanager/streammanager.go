@@ -1,12 +1,15 @@
 package streammanager
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -61,6 +64,7 @@ type StreamManager struct {
 	lastError     string
 	lastErrorTime time.Time
 	rtmpServer    *rtmp.Server
+	progressCh    chan progressData
 }
 
 func New(logger *zap.Logger) (*StreamManager, error) {
@@ -69,6 +73,7 @@ func New(logger *zap.Logger) (*StreamManager, error) {
 		logger:      logger,
 		queue:       make([]entry, 0),
 		queueNotify: make(chan struct{}, 1),
+		progressCh:  make(chan progressData, 100),
 	}, nil
 }
 
@@ -398,11 +403,6 @@ func (s *StreamManager) readFromFIFO(ctx context.Context, fifo string) error {
 		}
 	}
 
-	progressEndpoint := s.config.ProgressEndpoint
-	if progressEndpoint == "" {
-		progressEndpoint = "http://localhost:8080/progress"
-	}
-
 	// Set log level from config or default to error
 	logLevel := s.config.LogLevel
 	if logLevel == "" {
@@ -412,8 +412,7 @@ func (s *StreamManager) readFromFIFO(ctx context.Context, fifo string) error {
 	args := []string{
 		"-hide_banner",
 		"-loglevel", logLevel,
-		"-progress", progressEndpoint,
-		"-stats_period", "1",
+		"-progress", "pipe:1",
 		"-re", "-y",
 		"-i", fifo,
 		"-fflags", "+igndts",
@@ -469,15 +468,140 @@ func (s *StreamManager) readFromFIFO(ctx context.Context, fifo string) error {
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 	cmd.Stderr = os.Stderr
 
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
 	s.logger.Debug("Running ffmpeg read command", zap.Stringer("cmd", cmd))
 
-	err := cmd.Run()
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start ffmpeg: %w", err)
+	}
+
+	// Start a goroutine to parse progress data
+	go s.parseProgress(ctx, stdout)
+
+	err = cmd.Wait()
 	if err != nil {
 		if ctx.Err() != nil {
-			// Context was cancelled, this is expected
 			return ctx.Err()
 		}
 		return err
 	}
 	return nil
+}
+
+func (s *StreamManager) parseProgress(ctx context.Context, r io.Reader) {
+	scanner := bufio.NewScanner(r)
+	var progressBuffer strings.Builder
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		
+		// FFmpeg progress output ends each block with "progress=end" or "progress=continue"
+		if strings.HasPrefix(line, "progress=") {
+			if progressBuffer.Len() > 0 {
+				data := parseProgressData(progressBuffer.String())
+				select {
+				case s.progressCh <- data:
+				case <-ctx.Done():
+					return
+				default:
+					// Channel full, skip this update
+				}
+				progressBuffer.Reset()
+			}
+		} else if line != "" {
+			progressBuffer.WriteString(line)
+			progressBuffer.WriteString("\n")
+		}
+	}
+}
+
+func parseProgressData(body string) progressData {
+	data := progressData{
+		Timestamp: time.Now(),
+	}
+
+	lines := strings.SplitSeq(body, "\n")
+	for line := range lines {
+		if line == "" {
+			continue
+		}
+
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+
+		switch key {
+		case "frame":
+			if v, err := strconv.ParseInt(value, 10, 64); err == nil {
+				data.Frame = v
+			}
+		case "fps":
+			if v, err := strconv.ParseFloat(value, 64); err == nil {
+				data.Fps = v
+			}
+		case "bitrate":
+			data.Bitrate = value
+		case "total_size":
+			if v, err := strconv.ParseInt(value, 10, 64); err == nil {
+				data.TotalSize = v
+			}
+		case "out_time_us":
+			if v, err := strconv.ParseInt(value, 10, 64); err == nil {
+				data.OutTimeUs = v
+			}
+		case "out_time":
+			data.OutTime = value
+		case "dup_frames":
+			if v, err := strconv.ParseInt(value, 10, 64); err == nil {
+				data.DupFrames = v
+			}
+		case "drop_frames":
+			if v, err := strconv.ParseInt(value, 10, 64); err == nil {
+				data.DropFrames = v
+			}
+		case "speed":
+			data.Speed = value
+		case "progress":
+			data.Progress = value
+		}
+	}
+
+	return data
+}
+
+// GetProgressChan returns a channel that receives progress updates
+func (s *StreamManager) GetProgressChan() <-chan progressData {
+	return s.progressCh
+}
+
+// GetLatestProgress returns the latest progress data (non-blocking)
+func (s *StreamManager) GetLatestProgress() (progressData, bool) {
+	select {
+	case data := <-s.progressCh:
+		return data, true
+	default:
+		return progressData{}, false
+	}
+}
+
+type progressData struct {
+	Frame      int64     `json:"frame"`
+	Fps        float64   `json:"fps"`
+	Bitrate    string    `json:"bitrate"`
+	TotalSize  int64     `json:"total_size"`
+	OutTimeUs  int64     `json:"out_time_us"`
+	OutTime    string    `json:"out_time"`
+	DupFrames  int64     `json:"dup_frames"`
+	DropFrames int64     `json:"drop_frames"`
+	Speed      string    `json:"speed"`
+	Progress   string    `json:"progress"`
+	Timestamp  time.Time `json:"timestamp"`
 }

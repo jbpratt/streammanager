@@ -2,6 +2,8 @@ class StreamManager {
     constructor() {
         this.isRunning = false;
         this.player = null;
+        this.progressInterval = null;
+        this.lastProgressTime = null;
         this.initEventListeners();
     }
 
@@ -21,6 +23,9 @@ class StreamManager {
 
         // Auto-refresh queue every 5 seconds
         setInterval(() => this.getQueue(), 5000);
+        
+        // Start progress polling
+        this.startProgressPolling();
     }
 
     toggle() {
@@ -117,6 +122,7 @@ class StreamManager {
                 this.isRunning = true;
                 this.updateToggleButton();
                 this.getQueue(); // Refresh queue immediately
+                this.startProgressPolling(); // Start progress updates
             }
             this.showStatus(text, response.ok);
         } catch (error) {
@@ -183,6 +189,8 @@ class StreamManager {
             if (response.ok) {
                 this.isRunning = false;
                 this.updateToggleButton();
+                this.stopProgressPolling(); // Stop progress updates
+                this.hideProgress(); // Hide progress display
                 // Wait a bit before polling to allow server to update
                 setTimeout(() => this.getQueue(), 1000);
             }
@@ -202,6 +210,16 @@ class StreamManager {
                 this.updateToggleButton();
                 this.showQueue(data);
                 this.showError(data.status.error);
+                
+                // Show/hide progress based on streaming status
+                if (data.status.running && data.status.activelyStreaming) {
+                    if (!this.progressInterval) {
+                        this.startProgressPolling();
+                    }
+                } else {
+                    this.stopProgressPolling();
+                    this.hideProgress();
+                }
             } else {
                 const text = await response.text();
                 this.showStatus(text, false);
@@ -294,6 +312,90 @@ class StreamManager {
         } else {
             errorDiv.classList.add('hidden');
         }
+    }
+
+    startProgressPolling() {
+        // Don't start multiple intervals
+        if (this.progressInterval) {
+            clearInterval(this.progressInterval);
+        }
+        
+        // Poll progress every 2 seconds
+        this.progressInterval = setInterval(() => this.getProgress(), 2000);
+        
+        // Get initial progress
+        this.getProgress();
+    }
+
+    stopProgressPolling() {
+        if (this.progressInterval) {
+            clearInterval(this.progressInterval);
+            this.progressInterval = null;
+        }
+    }
+
+    async getProgress() {
+        try {
+            const response = await fetch('/progress');
+            if (response.ok) {
+                const data = await response.json();
+                if (data.hasProgress && data.progress) {
+                    this.showProgress(data.progress);
+                } else if (!this.isRunning) {
+                    this.hideProgress();
+                }
+            }
+        } catch (error) {
+            // Don't show errors for progress polling to avoid spam
+            console.error('Progress polling error:', error);
+        }
+    }
+
+    showProgress(progress) {
+        const progressDiv = document.getElementById('progress');
+        progressDiv.classList.remove('hidden');
+
+        // Update progress data
+        document.getElementById('progressFrame').textContent = progress.frame?.toLocaleString() || '-';
+        document.getElementById('progressFps').textContent = progress.fps ? progress.fps.toFixed(1) : '-';
+        document.getElementById('progressBitrate').textContent = progress.bitrate || '-';
+        document.getElementById('progressTime').textContent = progress.out_time || '-';
+        document.getElementById('progressSpeed').textContent = progress.speed || '-';
+        
+        // Update timestamp
+        if (progress.timestamp) {
+            const timestamp = new Date(progress.timestamp);
+            document.getElementById('progressTimestamp').textContent = timestamp.toLocaleTimeString();
+            this.lastProgressTime = timestamp;
+        }
+
+        // Calculate and show progress bar (estimate based on frame count)
+        // This is a rough estimation - in a real scenario you'd need total duration
+        if (progress.frame && progress.fps) {
+            const estimatedTotalFrames = progress.fps * 300; // Assume 5 min video max for demo
+            const percentage = Math.min((progress.frame / estimatedTotalFrames) * 100, 100);
+            
+            const progressBar = document.getElementById('progressBar');
+            const progressPercentage = document.getElementById('progressPercentage');
+            
+            progressBar.style.width = percentage.toFixed(1) + '%';
+            progressPercentage.textContent = percentage.toFixed(1) + '%';
+        }
+    }
+
+    hideProgress() {
+        const progressDiv = document.getElementById('progress');
+        progressDiv.classList.add('hidden');
+        
+        // Reset progress values
+        document.getElementById('progressFrame').textContent = '-';
+        document.getElementById('progressFps').textContent = '-';
+        document.getElementById('progressBitrate').textContent = '-';
+        document.getElementById('progressTime').textContent = '-';
+        document.getElementById('progressSpeed').textContent = '-';
+        document.getElementById('progressTimestamp').textContent = '-';
+        document.getElementById('progressBar').style.width = '0%';
+        document.getElementById('progressPercentage').textContent = '0%';
     }
 }
 
