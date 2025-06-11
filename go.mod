@@ -4,7 +4,7 @@ go 1.24.3
 
 require (
 	github.com/MemeLabs/strims v0.0.0-20250610003818-249e25cca7d1
-	github.com/pion/interceptor v0.1.37
+	github.com/pion/interceptor v0.1.39
 	github.com/pion/webrtc/v4 v4.1.1
 	go.uber.org/zap v1.27.0
 	golang.org/x/sync v0.15.0
@@ -22,7 +22,7 @@ require (
 	github.com/pion/mdns/v2 v2.0.7 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/rtcp v1.2.15 // indirect
-	github.com/pion/rtp v1.8.15 // indirect
+	github.com/pion/rtp v1.8.18 // indirect
 	github.com/pion/sctp v1.8.39 // indirect
 	github.com/pion/sdp/v3 v3.0.11 // indirect
 	github.com/pion/srtp/v3 v3.0.4 // indirect
