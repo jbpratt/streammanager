@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jbpratt/streammanager/internal/api"
 	"github.com/jbpratt/streammanager/internal/rtmp"
 	"github.com/jbpratt/streammanager/internal/streammanager"
+	"github.com/jbpratt/streammanager/internal/webrtc"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 )
@@ -31,7 +33,11 @@ func TestEndToEnd(t *testing.T) {
 			logger.Error("Destination RTMP server error", zap.Error(err))
 		}
 	}()
-	defer destRTMPServer.Stop()
+	defer func() {
+		if err := destRTMPServer.Stop(); err != nil {
+			logger.Error("Failed to stop destination RTMP server", zap.Error(err))
+		}
+	}()
 
 	// Give RTMP server time to start
 	time.Sleep(100 * time.Millisecond)
@@ -42,9 +48,19 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("Failed to create API server: %v", err)
 	}
 
-	// Start HTTP server for API
+	// Create WebRTC server
+	webrtcServer, err := webrtc.NewServer(logger)
+	if err != nil {
+		t.Fatalf("Failed to create WebRTC server: %v", err)
+	}
+
+	// Connect WebRTC server to API for status reporting
+	apiServer.SetWebRTCServer(webrtcServer)
+
+	// Start HTTP server for API and WebRTC
 	mux := http.NewServeMux()
 	apiServer.SetupRoutes(mux)
+	webrtcServer.SetupRoutes(mux)
 	
 	httpServer := &http.Server{
 		Addr:    ":8081",
@@ -59,7 +75,9 @@ func TestEndToEnd(t *testing.T) {
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		httpServer.Shutdown(ctx)
+		if err := httpServer.Shutdown(ctx); err != nil {
+			logger.Error("Failed to shutdown HTTP server", zap.Error(err))
+		}
 	}()
 
 	// Give HTTP server time to start
@@ -280,5 +298,238 @@ func TestEndToEnd(t *testing.T) {
 		}
 
 		logger.Info("Final status", zap.Any("status", status))
+	})
+
+	// Test 6: WebRTC endpoints validation
+	t.Run("webrtc_endpoints", func(t *testing.T) {
+		// Test WebRTC status endpoint
+		t.Run("webrtc_status", func(t *testing.T) {
+			resp, err := http.Get("http://localhost:8081/webrtc/status")
+			if err != nil {
+				t.Fatalf("Failed to get WebRTC status: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("Expected status 200 for WebRTC status, got %d", resp.StatusCode)
+			}
+
+			var status map[string]interface{}
+			if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+				t.Fatalf("Failed to decode WebRTC status: %v", err)
+			}
+
+			// Validate required fields
+			requiredFields := []string{"broadcasting", "subscribers_count", "has_video", "has_audio"}
+			for _, field := range requiredFields {
+				if _, exists := status[field]; !exists {
+					t.Fatalf("Expected field %s in WebRTC status", field)
+				}
+			}
+
+			// Initially, there should be no broadcast
+			if status["broadcasting"].(bool) {
+				t.Fatal("Expected broadcasting to be false initially")
+			}
+
+			if status["subscribers_count"].(float64) != 0 {
+				t.Fatal("Expected subscribers_count to be 0 initially")
+			}
+
+			logger.Info("WebRTC status validated", zap.Any("status", status))
+		})
+
+		// Test WHIP endpoint with invalid SDP (should return 400)
+		t.Run("whip_invalid_sdp", func(t *testing.T) {
+			invalidSDP := "invalid sdp content"
+			resp, err := http.Post("http://localhost:8081/whip", "application/sdp", strings.NewReader(invalidSDP))
+			if err != nil {
+				t.Fatalf("Failed to call WHIP endpoint: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("Expected status 400 for invalid SDP, got %d", resp.StatusCode)
+			}
+
+			logger.Info("WHIP invalid SDP test passed")
+		})
+
+		// Test WHEP endpoint with no active broadcast (should return 404)
+		t.Run("whep_no_broadcast", func(t *testing.T) {
+			validOfferSDP := `v=0
+o=- 123456789 123456789 IN IP4 127.0.0.1
+s=-
+t=0 0
+m=video 9 UDP/TLS/RTP/SAVPF 96
+c=IN IP4 0.0.0.0
+a=rtcp:9 IN IP4 0.0.0.0
+a=ice-ufrag:test
+a=ice-pwd:testpassword
+a=fingerprint:sha-256 00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00
+a=setup:actpass
+a=mid:0
+a=sendrecv
+a=rtcp-mux
+a=rtpmap:96 H264/90000`
+
+			resp, err := http.Post("http://localhost:8081/whep", "application/sdp", strings.NewReader(validOfferSDP))
+			if err != nil {
+				t.Fatalf("Failed to call WHEP endpoint: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusNotFound {
+				t.Fatalf("Expected status 404 for WHEP with no broadcast, got %d", resp.StatusCode)
+			}
+
+			logger.Info("WHEP no broadcast test passed")
+		})
+
+		// Test WHIP OPTIONS (CORS preflight)
+		t.Run("whip_options", func(t *testing.T) {
+			req, err := http.NewRequest("OPTIONS", "http://localhost:8081/whip", nil)
+			if err != nil {
+				t.Fatalf("Failed to create OPTIONS request: %v", err)
+			}
+
+			client := &http.Client{}
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("Failed to send OPTIONS request: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("Expected status 200 for WHIP OPTIONS, got %d", resp.StatusCode)
+			}
+
+			// Check CORS headers
+			allowOrigin := resp.Header.Get("Access-Control-Allow-Origin")
+			if allowOrigin != "*" {
+				t.Fatalf("Expected Access-Control-Allow-Origin: *, got %s", allowOrigin)
+			}
+
+			allowMethods := resp.Header.Get("Access-Control-Allow-Methods")
+			if !strings.Contains(allowMethods, "POST") {
+				t.Fatalf("Expected POST in Access-Control-Allow-Methods, got %s", allowMethods)
+			}
+
+			logger.Info("WHIP OPTIONS test passed")
+		})
+
+		// Test WHEP OPTIONS (CORS preflight)
+		t.Run("whep_options", func(t *testing.T) {
+			req, err := http.NewRequest("OPTIONS", "http://localhost:8081/whep", nil)
+			if err != nil {
+				t.Fatalf("Failed to create OPTIONS request: %v", err)
+			}
+
+			client := &http.Client{}
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("Failed to send OPTIONS request: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("Expected status 200 for WHEP OPTIONS, got %d", resp.StatusCode)
+			}
+
+			// Check CORS headers
+			allowOrigin := resp.Header.Get("Access-Control-Allow-Origin")
+			if allowOrigin != "*" {
+				t.Fatalf("Expected Access-Control-Allow-Origin: *, got %s", allowOrigin)
+			}
+
+			logger.Info("WHEP OPTIONS test passed")
+		})
+
+		// Test method not allowed for unsupported HTTP methods
+		t.Run("unsupported_methods", func(t *testing.T) {
+			endpoints := []string{"/whip", "/whep"}
+			methods := []string{"GET", "PUT", "DELETE", "PATCH"}
+
+			for _, endpoint := range endpoints {
+				for _, method := range methods {
+					req, err := http.NewRequest(method, "http://localhost:8081"+endpoint, nil)
+					if err != nil {
+						t.Fatalf("Failed to create %s request for %s: %v", method, endpoint, err)
+					}
+
+					client := &http.Client{}
+					resp, err := client.Do(req)
+					if err != nil {
+						t.Fatalf("Failed to send %s request to %s: %v", method, endpoint, err)
+					}
+					resp.Body.Close()
+
+					if resp.StatusCode != http.StatusMethodNotAllowed {
+						t.Fatalf("Expected status 405 for %s %s, got %d", method, endpoint, resp.StatusCode)
+					}
+				}
+			}
+
+			logger.Info("Unsupported methods test passed")
+		})
+	})
+
+	// Test 7: WebRTC status integration with streaming
+	t.Run("webrtc_status_during_streaming", func(t *testing.T) {
+		// Start streaming again to test WebRTC status during active streaming
+		config := streammanager.Config{
+			Destination:      "rtmp://localhost:1936/live/test2",
+			RTMPAddr:         ":1937",
+			Encoder:          "libx264",
+			Preset:           "ultrafast",
+			ProgressEndpoint: "http://localhost:8081/progress",
+			LogLevel:         "warning",
+		}
+
+		configJSON, err := json.Marshal(config)
+		if err != nil {
+			t.Fatalf("Failed to marshal config: %v", err)
+		}
+
+		resp, err := http.Post("http://localhost:8081/start", "application/json", bytes.NewReader(configJSON))
+		if err != nil {
+			t.Fatalf("Failed to start streaming: %v", err)
+		}
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		// Wait for streaming to start
+		time.Sleep(500 * time.Millisecond)
+
+		// Check WebRTC status while streaming is active
+		resp, err = http.Get("http://localhost:8081/webrtc/status")
+		if err != nil {
+			t.Fatalf("Failed to get WebRTC status during streaming: %v", err)
+		}
+		defer resp.Body.Close()
+
+		var status map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+			t.Fatalf("Failed to decode WebRTC status: %v", err)
+		}
+
+		logger.Info("WebRTC status during streaming", zap.Any("status", status))
+
+		// WebRTC should still be available even when RTMP streaming is active
+		if _, exists := status["broadcasting"]; !exists {
+			t.Fatal("Expected broadcasting field to exist")
+		}
+
+		// Stop streaming
+		resp, err = http.Post("http://localhost:8081/stop", "application/json", nil)
+		if err != nil {
+			t.Fatalf("Failed to stop streaming: %v", err)
+		}
+		resp.Body.Close()
+
+		logger.Info("WebRTC integration test completed")
 	})
 }

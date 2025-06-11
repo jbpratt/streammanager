@@ -14,9 +14,14 @@ import (
 )
 
 type Server struct {
-	sm       *streammanager.StreamManager
-	logger   *zap.Logger
-	rtmpAddr string
+	sm         *streammanager.StreamManager
+	logger     *zap.Logger
+	rtmpAddr   string
+	webrtcSrv  WebRTCStatusProvider
+}
+
+type WebRTCStatusProvider interface {
+	GetStatus() map[string]interface{}
 }
 
 func New(logger *zap.Logger, rtmpAddr string) (*Server, error) {
@@ -29,6 +34,10 @@ func New(logger *zap.Logger, rtmpAddr string) (*Server, error) {
 		logger:   logger,
 		rtmpAddr: rtmpAddr,
 	}, nil
+}
+
+func (s *Server) SetWebRTCServer(webrtcSrv WebRTCStatusProvider) {
+	s.webrtcSrv = webrtcSrv
 }
 
 func (s *Server) StreamManager() *streammanager.StreamManager {
@@ -77,6 +86,7 @@ func (s *Server) SetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/skip", s.logMiddleware(s.handleSkip))
 	mux.HandleFunc("/stop", s.logMiddleware(s.handleStop))
 	mux.HandleFunc("/progress", s.logMiddleware(s.handleProgress))
+	mux.HandleFunc("/webrtc/status", s.logMiddleware(s.handleWebRTCStatus))
 }
 
 func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
@@ -158,10 +168,12 @@ func (s *Server) handleEnqueue(w http.ResponseWriter, r *http.Request) {
 		zap.Any("overlay", req.Overlay))
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"id":   id,
 		"file": file,
-	})
+	}); err != nil {
+		s.logger.Error("Failed to encode response", zap.Error(err))
+	}
 }
 
 func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
@@ -179,10 +191,12 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 		zap.Int("queue_length", len(queue)))
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	if err := json.NewEncoder(w).Encode(map[string]any{
 		"status": status,
 		"queue":  queue,
-	})
+	}); err != nil {
+		s.logger.Error("Failed to encode queue response", zap.Error(err))
+	}
 }
 
 func (s *Server) handleDequeue(w http.ResponseWriter, r *http.Request) {
@@ -253,8 +267,30 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 	progress, hasProgress := s.sm.GetLatestProgress()
 	
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	if err := json.NewEncoder(w).Encode(map[string]any{
 		"hasProgress": hasProgress,
 		"progress":    progress,
-	})
+	}); err != nil {
+		s.logger.Error("Failed to encode progress response", zap.Error(err))
+	}
+}
+
+func (s *Server) handleWebRTCStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.logger.Warn("Invalid method for /webrtc/status endpoint", zap.String("method", r.Method))
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	status := make(map[string]interface{})
+	if s.webrtcSrv != nil {
+		status = s.webrtcSrv.GetStatus()
+	} else {
+		status["error"] = "WebRTC server not initialized"
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(status); err != nil {
+		s.logger.Error("Failed to encode WebRTC status response", zap.Error(err))
+	}
 }

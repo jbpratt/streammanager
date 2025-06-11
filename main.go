@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jbpratt/streammanager/internal/api"
+	"github.com/jbpratt/streammanager/internal/webrtc"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -38,17 +39,28 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	defer logger.Sync()
+	defer func() {
+		_ = logger.Sync() // Safe to ignore error in defer during shutdown
+	}()
 
 	apiServer, err := api.New(logger, *rtmpAddr)
 	if err != nil {
 		logger.Fatal("Failed to create API server", zap.Error(err))
 	}
 
+	webrtcServer, err := webrtc.NewServer(logger)
+	if err != nil {
+		logger.Fatal("Failed to create WebRTC server", zap.Error(err))
+	}
+
+	// Connect WebRTC server to API for status reporting
+	apiServer.SetWebRTCServer(webrtcServer)
+
 	mux := http.NewServeMux()
 
 	mux.Handle("/", http.FileServer(http.Dir("www")))
 	apiServer.SetupRoutes(mux)
+	webrtcServer.SetupRoutes(mux)
 
 	srvr := &http.Server{
 		Addr:    *addr,

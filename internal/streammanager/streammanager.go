@@ -15,7 +15,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jbpratt/streammanager/internal/rtmp"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 )
@@ -35,8 +34,6 @@ type OverlaySettings struct {
 }
 
 type Config struct {
-	reportEndpoint string
-
 	Destination      string `json:"destination"`
 	MaxBitrate       string `json:"maxBitrate"`
 	Username         string `json:"username"`
@@ -63,7 +60,6 @@ type StreamManager struct {
 	currentEntry  *entry
 	lastError     string
 	lastErrorTime time.Time
-	rtmpServer    *rtmp.Server
 	progressCh    chan progressData
 }
 
@@ -93,13 +89,6 @@ func (s *StreamManager) cleanup() {
 	s.ctx = nil
 	s.cancel = nil
 
-	if s.rtmpServer != nil {
-		if err := s.rtmpServer.Stop(); err != nil {
-			s.logger.Error("Error stopping RTMP server", zap.Error(err))
-		}
-		s.rtmpServer = nil
-	}
-
 	_ = os.Remove(fifoPath)
 }
 
@@ -127,22 +116,6 @@ func (s *StreamManager) Run(ctx context.Context, cfg Config) error {
 
 	eg, ctx := errgroup.WithContext(ctx)
 	s.ctx, s.cancel = context.WithCancel(ctx)
-
-	// Start RTMP server if address provided
-	if cfg.RTMPAddr != "" {
-		rtmpServer, err := rtmp.NewServer(s.logger, cfg.RTMPAddr)
-		if err != nil {
-			return fmt.Errorf("failed to create RTMP server: %w", err)
-		}
-		s.rtmpServer = rtmpServer
-
-		eg.Go(func() error {
-			if err = s.rtmpServer.Start(); err != nil {
-				return err
-			}
-			return nil
-		})
-	}
 
 	eg.Go(func() error {
 		s.logger.Debug("Streaming FIFO reader", zap.String("destination", s.config.Destination))
@@ -498,7 +471,7 @@ func (s *StreamManager) parseProgress(ctx context.Context, r io.Reader) {
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		
+
 		// FFmpeg progress output ends each block with "progress=end" or "progress=continue"
 		if strings.HasPrefix(line, "progress=") {
 			if progressBuffer.Len() > 0 {
