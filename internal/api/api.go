@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ type Server struct {
 	logger     *zap.Logger
 	rtmpAddr   string
 	webrtcSrv  WebRTCStatusProvider
+	fileDir    string // Directory to serve files from
 }
 
 type WebRTCStatusProvider interface {
@@ -29,15 +31,38 @@ func New(logger *zap.Logger, rtmpAddr string) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	
+	// Default to current directory, can be configured later
+	fileDir, err := os.Getwd()
+	if err != nil {
+		fileDir = "."
+	}
+	
 	return &Server{
 		sm:       sm,
 		logger:   logger,
 		rtmpAddr: rtmpAddr,
+		fileDir:  fileDir,
 	}, nil
 }
 
 func (s *Server) SetWebRTCServer(webrtcSrv WebRTCStatusProvider) {
 	s.webrtcSrv = webrtcSrv
+}
+
+func (s *Server) SetFileDirectory(dir string) error {
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return fmt.Errorf("invalid directory path: %w", err)
+	}
+	
+	if _, err := os.Stat(absDir); os.IsNotExist(err) {
+		return fmt.Errorf("directory does not exist: %s", absDir)
+	}
+	
+	s.fileDir = absDir
+	s.logger.Info("File directory set", zap.String("directory", absDir))
+	return nil
 }
 
 func (s *Server) StreamManager() *streammanager.StreamManager {
@@ -87,6 +112,8 @@ func (s *Server) SetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/stop", s.logMiddleware(s.handleStop))
 	mux.HandleFunc("/progress", s.logMiddleware(s.handleProgress))
 	mux.HandleFunc("/webrtc/status", s.logMiddleware(s.handleWebRTCStatus))
+	mux.HandleFunc("/files", s.logMiddleware(s.handleListFiles))
+	mux.HandleFunc("/files/", s.logMiddleware(s.handleServeFile))
 }
 
 func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
@@ -293,4 +320,172 @@ func (s *Server) handleWebRTCStatus(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(status); err != nil {
 		s.logger.Error("Failed to encode WebRTC status response", zap.Error(err))
 	}
+}
+
+// FileInfo represents a file entry for the API
+type FileInfo struct {
+	Name    string `json:"name"`
+	Path    string `json:"path"`
+	Size    int64  `json:"size"`
+	ModTime string `json:"modTime"`
+	IsDir   bool   `json:"isDir"`
+}
+
+// isSecurePath validates that the requested path is safe and within allowed directories
+func (s *Server) isSecurePath(requestedPath string) (string, bool) {
+	// Clean the path to prevent directory traversal
+	cleanPath := filepath.Clean(requestedPath)
+	
+	// Prevent access to parent directories
+	if strings.Contains(cleanPath, "..") {
+		return "", false
+	}
+	
+	// Build the full path
+	fullPath := filepath.Join(s.fileDir, cleanPath)
+	
+	// Ensure the resolved path is still within our allowed directory
+	absFileDir, err := filepath.Abs(s.fileDir)
+	if err != nil {
+		return "", false
+	}
+	
+	absFullPath, err := filepath.Abs(fullPath)
+	if err != nil {
+		return "", false
+	}
+	
+	if !strings.HasPrefix(absFullPath, absFileDir) {
+		return "", false
+	}
+	
+	return absFullPath, true
+}
+
+// handleListFiles lists files in a directory
+func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.logger.Warn("Invalid method for /files endpoint", zap.String("method", r.Method))
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get path parameter
+	dirPath := r.URL.Query().Get("path")
+	if dirPath == "" {
+		dirPath = "."
+	}
+
+	// Validate path security
+	safePath, isSafe := s.isSecurePath(dirPath)
+	if !isSafe {
+		s.logger.Warn("Unsafe path access attempted", zap.String("path", dirPath))
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	// Read directory
+	entries, err := os.ReadDir(safePath)
+	if err != nil {
+		s.logger.Error("Failed to read directory", zap.String("path", safePath), zap.Error(err))
+		http.Error(w, "Directory not found", http.StatusNotFound)
+		return
+	}
+
+	// Build response
+	var files []FileInfo
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		// Only include video files and directories
+		if !entry.IsDir() && !isVideoFile(entry.Name()) {
+			continue
+		}
+
+		files = append(files, FileInfo{
+			Name:    entry.Name(),
+			Path:    filepath.Join(dirPath, entry.Name()),
+			Size:    info.Size(),
+			ModTime: info.ModTime().Format(time.RFC3339),
+			IsDir:   entry.IsDir(),
+		})
+	}
+
+	s.logger.Debug("Listed files", zap.String("path", safePath), zap.Int("count", len(files)))
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+		"path":  dirPath,
+		"files": files,
+	}); err != nil {
+		s.logger.Error("Failed to encode files response", zap.Error(err))
+	}
+}
+
+// handleServeFile serves a specific file
+func (s *Server) handleServeFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.logger.Warn("Invalid method for /files/ endpoint", zap.String("method", r.Method))
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract file path from URL
+	filePath := strings.TrimPrefix(r.URL.Path, "/files/")
+	if filePath == "" {
+		http.Error(w, "File path required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate path security
+	safePath, isSafe := s.isSecurePath(filePath)
+	if !isSafe {
+		s.logger.Warn("Unsafe file access attempted", zap.String("path", filePath))
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	// Check if file exists and is not a directory
+	info, err := os.Stat(safePath)
+	if err != nil {
+		s.logger.Error("File not found", zap.String("path", safePath), zap.Error(err))
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+
+	if info.IsDir() {
+		http.Error(w, "Path is a directory", http.StatusBadRequest)
+		return
+	}
+
+	// Only serve video files
+	if !isVideoFile(safePath) {
+		s.logger.Warn("Non-video file access attempted", zap.String("path", safePath))
+		http.Error(w, "Only video files can be served", http.StatusForbidden)
+		return
+	}
+
+	s.logger.Debug("Serving file", zap.String("path", safePath))
+
+	// Serve the file
+	http.ServeFile(w, r, safePath)
+}
+
+// isVideoFile checks if a file is a video file based on extension
+func isVideoFile(filename string) bool {
+	ext := strings.ToLower(filepath.Ext(filename))
+	videoExtensions := []string{
+		".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".m4v",
+		".mpg", ".mpeg", ".3gp", ".ogg", ".ts", ".mts", ".m2ts",
+	}
+	
+	for _, validExt := range videoExtensions {
+		if ext == validExt {
+			return true
+		}
+	}
+	return false
 }

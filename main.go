@@ -25,6 +25,7 @@ func main() {
 	addr := flag.String("http-addr", ":8080", "server address")
 	rtmpAddr := flag.String("rtmp-addr", ":1935", "RTMP server address")
 	logLevel := flag.String("log-level", "info", "Log level (debug, info)")
+	fileDir := flag.String("file-dir", ".", "Directory to serve files from")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -46,6 +47,11 @@ func main() {
 	apiServer, err := api.New(logger, *rtmpAddr)
 	if err != nil {
 		logger.Fatal("Failed to create API server", zap.Error(err))
+	}
+
+	// Set file directory for file serving
+	if err := apiServer.SetFileDirectory(*fileDir); err != nil {
+		logger.Fatal("Failed to set file directory", zap.Error(err))
 	}
 
 	webrtcServer, err := webrtc.NewServer(logger)

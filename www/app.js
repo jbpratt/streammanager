@@ -4,16 +4,24 @@ class StreamManager {
         this.player = null;
         this.progressInterval = null;
         this.lastProgressTime = null;
+        this.currentPath = '.';
+        this.selectedFile = null;
+        this.fileMode = 'local'; // 'local' or 'server'
         this.initEventListeners();
     }
 
     initEventListeners() {
         document.getElementById('toggleBtn').addEventListener('click', () => this.toggle());
-        document.getElementById('enqueueBtn').addEventListener('click', () => this.enqueue());
+        document.getElementById('enqueueLocalBtn').addEventListener('click', () => this.enqueueLocal());
+        document.getElementById('enqueueServerBtn').addEventListener('click', () => this.enqueueServer());
         document.getElementById('skipBtn').addEventListener('click', () => this.skip());
         document.getElementById('configToggle').addEventListener('click', () => this.toggleConfigSettings());
         document.getElementById('overlayToggle').addEventListener('click', () => this.toggleOverlaySettings());
+        document.getElementById('fileModeToggle').addEventListener('click', () => this.toggleFileModeSettings());
         document.getElementById('showFilename').addEventListener('change', () => this.toggleOverlayOptions());
+        document.getElementById('localFilesBtn').addEventListener('click', () => this.switchToLocalFiles());
+        document.getElementById('serverFilesBtn').addEventListener('click', () => this.switchToServerFiles());
+        document.getElementById('refreshBtn').addEventListener('click', () => this.refreshServerFiles());
 
         // Auto-refresh queue on page load
         this.getQueue();
@@ -73,6 +81,40 @@ class StreamManager {
         }
     }
 
+    toggleFileModeSettings() {
+        const content = document.getElementById('fileModeContent');
+        const arrow = document.getElementById('fileModeArrow');
+
+        if (content.style.display === 'none') {
+            content.style.display = 'block';
+            arrow.textContent = '▼';
+        } else {
+            content.style.display = 'none';
+            arrow.textContent = '▶';
+        }
+    }
+
+    switchToLocalFiles() {
+        this.fileMode = 'local';
+        document.getElementById('localFilesBtn').className = 'flex-1 px-3 py-2 text-xs bg-blue-100 text-blue-700 rounded border';
+        document.getElementById('serverFilesBtn').className = 'flex-1 px-3 py-2 text-xs bg-gray-100 text-gray-700 rounded border';
+        document.getElementById('localFileSection').classList.remove('hidden');
+        document.getElementById('serverFileSection').classList.add('hidden');
+    }
+
+    switchToServerFiles() {
+        this.fileMode = 'server';
+        document.getElementById('localFilesBtn').className = 'flex-1 px-3 py-2 text-xs bg-gray-100 text-gray-700 rounded border';
+        document.getElementById('serverFilesBtn').className = 'flex-1 px-3 py-2 text-xs bg-blue-100 text-blue-700 rounded border';
+        document.getElementById('localFileSection').classList.add('hidden');
+        document.getElementById('serverFileSection').classList.remove('hidden');
+        this.loadServerFiles();
+    }
+
+    refreshServerFiles() {
+        this.loadServerFiles();
+    }
+
     updateToggleButton() {
         const toggleBtn = document.getElementById('toggleBtn');
         if (this.isRunning) {
@@ -130,7 +172,7 @@ class StreamManager {
         }
     }
 
-    async enqueue() {
+    async enqueueLocal() {
         const fileInput = document.getElementById('fileInput');
         if (!fileInput.files.length) {
             this.showStatus('Please select a file first', false);
@@ -162,6 +204,46 @@ class StreamManager {
                 const data = await response.json();
                 this.showStatus(`File "${data.file}" enqueued with ID: ${data.id}`, true);
                 fileInput.value = ''; // Clear the file input
+                this.getQueue(); // Refresh queue immediately
+            } else {
+                const text = await response.text();
+                this.showStatus(text, false);
+            }
+        } catch (error) {
+            this.showStatus('Error: ' + error.message, false);
+        }
+    }
+
+    async enqueueServer() {
+        if (!this.selectedFile) {
+            this.showStatus('Please select a server file first', false);
+            return;
+        }
+
+        // Collect overlay settings
+        const overlaySettings = {
+            showFilename: document.getElementById('showFilename').checked,
+            position: document.getElementById('overlayPosition').value,
+            fontSize: parseInt(document.getElementById('fontSize').value)
+        };
+
+        try {
+            const response = await fetch('/enqueue', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    file: this.selectedFile,
+                    overlay: overlaySettings
+                })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                this.showStatus(`Server file "${data.file}" enqueued with ID: ${data.id}`, true);
+                this.selectedFile = null;
+                this.updateServerFileSelection();
                 this.getQueue(); // Refresh queue immediately
             } else {
                 const text = await response.text();
@@ -396,6 +478,125 @@ class StreamManager {
         document.getElementById('progressTimestamp').textContent = '-';
         document.getElementById('progressBar').style.width = '0%';
         document.getElementById('progressPercentage').textContent = '0%';
+    }
+
+    async loadServerFiles() {
+        const fileBrowser = document.getElementById('fileBrowser');
+        fileBrowser.innerHTML = '<div class="text-center text-gray-500 py-4">Loading...</div>';
+
+        try {
+            const url = `/files${this.currentPath !== '.' ? '?path=' + encodeURIComponent(this.currentPath) : ''}`;
+            const response = await fetch(url);
+            
+            if (response.ok) {
+                const data = await response.json();
+                this.displayServerFiles(data.files, data.path);
+                document.getElementById('currentPath').textContent = `📂 ${data.path === '.' ? '/' : data.path}`;
+            } else {
+                const text = await response.text();
+                fileBrowser.innerHTML = `<div class="text-center text-red-500 py-4">Error: ${text}</div>`;
+            }
+        } catch (error) {
+            fileBrowser.innerHTML = `<div class="text-center text-red-500 py-4">Error: ${error.message}</div>`;
+        }
+    }
+
+    displayServerFiles(files, currentPath) {
+        const fileBrowser = document.getElementById('fileBrowser');
+        
+        if (files.length === 0) {
+            fileBrowser.innerHTML = '<div class="text-center text-gray-500 py-4">No video files found</div>';
+            return;
+        }
+
+        let html = '';
+        
+        // Add parent directory link if not at root
+        if (currentPath !== '.' && currentPath !== '/') {
+            const parentPath = currentPath.split('/').slice(0, -1).join('/') || '.';
+            html += `
+                <div class="flex items-center p-2 hover:bg-gray-100 cursor-pointer border-b file-entry" data-path="${parentPath}" data-type="parent">
+                    <span class="mr-2">📁</span>
+                    <span class="text-blue-600">..</span>
+                </div>
+            `;
+        }
+
+        // Sort files: directories first, then files
+        const sortedFiles = [...files].sort((a, b) => {
+            if (a.isDir && !b.isDir) return -1;
+            if (!a.isDir && b.isDir) return 1;
+            return a.name.localeCompare(b.name);
+        });
+
+        sortedFiles.forEach(file => {
+            const icon = file.isDir ? '📁' : '🎬';
+            const sizeText = file.isDir ? '' : ` (${this.formatFileSize(file.size)})`;
+            const pathClass = file.isDir ? 'text-blue-600' : 'text-gray-700';
+            
+            html += `
+                <div class="flex items-center justify-between p-2 hover:bg-gray-100 cursor-pointer border-b file-entry" data-path="${file.path}" data-type="${file.isDir ? 'dir' : 'file'}">
+                    <div class="flex items-center flex-1">
+                        <span class="mr-2">${icon}</span>
+                        <span class="${pathClass}">${file.name}</span>
+                        <span class="text-xs text-gray-500 ml-2">${sizeText}</span>
+                    </div>
+                    ${!file.isDir ? '<div class="text-xs text-gray-400">' + new Date(file.modTime).toLocaleDateString() + '</div>' : ''}
+                </div>
+            `;
+        });
+
+        fileBrowser.innerHTML = html;
+        
+        // Add click event listeners
+        fileBrowser.querySelectorAll('.file-entry').forEach(entry => {
+            entry.addEventListener('click', (e) => {
+                const path = e.currentTarget.getAttribute('data-path');
+                const type = e.currentTarget.getAttribute('data-type');
+                
+                if (type === 'dir' || type === 'parent') {
+                    this.currentPath = path;
+                    this.loadServerFiles();
+                } else if (type === 'file') {
+                    this.selectServerFile(path);
+                }
+            });
+        });
+    }
+
+    selectServerFile(filePath) {
+        // Clear previous selection
+        document.querySelectorAll('.file-entry').forEach(entry => {
+            entry.classList.remove('bg-blue-100');
+        });
+        
+        // Highlight selected file
+        const selectedEntry = document.querySelector(`[data-path="${filePath}"][data-type="file"]`);
+        if (selectedEntry) {
+            selectedEntry.classList.add('bg-blue-100');
+        }
+        
+        this.selectedFile = filePath;
+        this.updateServerFileSelection();
+    }
+
+    updateServerFileSelection() {
+        const enqueueBtn = document.getElementById('enqueueServerBtn');
+        if (this.selectedFile) {
+            enqueueBtn.disabled = false;
+            enqueueBtn.textContent = `Enqueue: ${this.selectedFile.split('/').pop()}`;
+        } else {
+            enqueueBtn.disabled = true;
+            enqueueBtn.textContent = 'Enqueue Selected File';
+        }
+    }
+
+    formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
 }
 

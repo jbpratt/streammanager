@@ -61,7 +61,7 @@ func TestEndToEnd(t *testing.T) {
 	mux := http.NewServeMux()
 	apiServer.SetupRoutes(mux)
 	webrtcServer.SetupRoutes(mux)
-	
+
 	httpServer := &http.Server{
 		Addr:    ":8081",
 		Handler: mux,
@@ -92,12 +92,11 @@ func TestEndToEnd(t *testing.T) {
 	// Test 1: Start streaming to destination RTMP server
 	t.Run("start_streaming", func(t *testing.T) {
 		config := streammanager.Config{
-			Destination:      "rtmp://localhost:1936/live/test",
-			RTMPAddr:         ":1937",
-			Encoder:          "libx264",
-			Preset:           "ultrafast",
-			ProgressEndpoint: "http://localhost:8081/progress",
-			LogLevel:         "warning",
+			Destination: "rtmp://localhost:1936/live/test",
+			RTMPAddr:    ":1937",
+			Encoder:     "libx264",
+			Preset:      "ultrafast",
+			LogLevel:    "warning",
 		}
 
 		configJSON, err := json.Marshal(config)
@@ -182,7 +181,7 @@ func TestEndToEnd(t *testing.T) {
 		}
 
 		status := queueStatus["status"].(map[string]interface{})
-		
+
 		if !status["running"].(bool) {
 			t.Fatal("Expected stream manager to be running")
 		}
@@ -202,10 +201,10 @@ func TestEndToEnd(t *testing.T) {
 	t.Run("check_progress", func(t *testing.T) {
 		// Wait for processing to start
 		time.Sleep(2 * time.Second)
-		
+
 		progressUpdates := 0
 		maxChecks := 20
-		
+
 		for i := 0; i < maxChecks; i++ {
 			resp, err := http.Get("http://localhost:8081/progress")
 			if err != nil {
@@ -226,7 +225,7 @@ func TestEndToEnd(t *testing.T) {
 			if hasProgress {
 				progressUpdates++
 				progress := progressResp["progress"].(map[string]interface{})
-				
+
 				// Log progress details
 				logger.Info("Progress update received",
 					zap.Int64("frame", int64(progress["frame"].(float64))),
@@ -234,7 +233,7 @@ func TestEndToEnd(t *testing.T) {
 					zap.String("bitrate", progress["bitrate"].(string)),
 					zap.String("out_time", progress["out_time"].(string)),
 					zap.String("speed", progress["speed"].(string)))
-				
+
 				// Validate progress data structure
 				if _, ok := progress["frame"]; !ok {
 					t.Fatal("Expected frame field in progress data")
@@ -246,14 +245,14 @@ func TestEndToEnd(t *testing.T) {
 					t.Fatal("Expected timestamp field in progress data")
 				}
 			}
-			
+
 			time.Sleep(500 * time.Millisecond)
 		}
-		
+
 		if progressUpdates == 0 {
 			t.Fatal("Expected to receive at least one progress update")
 		}
-		
+
 		logger.Info("Progress validation completed", zap.Int("total_updates", progressUpdates))
 	})
 
@@ -290,7 +289,7 @@ func TestEndToEnd(t *testing.T) {
 		}
 
 		status := queueStatus["status"].(map[string]interface{})
-		
+
 		if status["running"].(bool) {
 			logger.Info("Stream manager is still running (may be shutting down)")
 		} else {
@@ -474,16 +473,200 @@ a=rtpmap:96 H264/90000`
 		})
 	})
 
-	// Test 7: WebRTC status integration with streaming
+	// Test 7: File API endpoints
+	t.Run("file_api_endpoints", func(t *testing.T) {
+		// Set a test directory for file serving
+		testDir := "../"
+		if err := apiServer.SetFileDirectory(testDir); err != nil {
+			t.Fatalf("Failed to set file directory: %v", err)
+		}
+
+		// Test file listing
+		t.Run("list_files", func(t *testing.T) {
+			resp, err := http.Get("http://localhost:8081/files")
+			if err != nil {
+				t.Fatalf("Failed to list files: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("Expected status 200 for file listing, got %d", resp.StatusCode)
+			}
+
+			var result map[string]interface{}
+			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+				t.Fatalf("Failed to decode file listing response: %v", err)
+			}
+
+			// Validate response structure
+			if _, exists := result["path"]; !exists {
+				t.Fatal("Expected 'path' field in response")
+			}
+			if _, exists := result["files"]; !exists {
+				t.Fatal("Expected 'files' field in response")
+			}
+
+			files := result["files"].([]interface{})
+			logger.Info("Listed files", zap.Int("count", len(files)))
+
+			// Should contain our test video file
+			foundTestFile := false
+			for _, file := range files {
+				fileMap := file.(map[string]interface{})
+				if strings.Contains(fileMap["name"].(string), "big_buck_bunny") {
+					foundTestFile = true
+					// Validate file info structure
+					requiredFields := []string{"name", "path", "size", "modTime", "isDir"}
+					for _, field := range requiredFields {
+						if _, exists := fileMap[field]; !exists {
+							t.Fatalf("Expected field %s in file info", field)
+						}
+					}
+				}
+			}
+			if !foundTestFile {
+				t.Fatal("Expected to find test video file in listing")
+			}
+		})
+
+		// Test file listing with subdirectory
+		t.Run("list_files_with_path", func(t *testing.T) {
+			resp, err := http.Get("http://localhost:8081/files?path=www")
+			if err != nil {
+				t.Fatalf("Failed to list files with path: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("Expected status 200 for file listing with path, got %d", resp.StatusCode)
+			}
+
+			var result map[string]interface{}
+			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+				t.Fatalf("Failed to decode file listing response: %v", err)
+			}
+
+			if result["path"].(string) != "www" {
+				t.Fatalf("Expected path 'www', got %s", result["path"].(string))
+			}
+
+			logger.Info("Listed www directory files")
+		})
+
+		// Test directory traversal protection
+		t.Run("directory_traversal_protection", func(t *testing.T) {
+			maliciousPaths := []string{
+				"../../../etc/passwd",
+				"..%2F..%2F..%2Fetc%2Fpasswd",
+				"....//....//....//etc//passwd",
+			}
+
+			for _, path := range maliciousPaths {
+				resp, err := http.Get("http://localhost:8081/files?path=" + path)
+				if err != nil {
+					t.Fatalf("Failed to test path %s: %v", path, err)
+				}
+				resp.Body.Close()
+
+				if resp.StatusCode != http.StatusForbidden {
+					t.Fatalf("Expected status 403 for malicious path %s, got %d", path, resp.StatusCode)
+				}
+			}
+
+			logger.Info("Directory traversal protection validated")
+		})
+
+		// Test file serving
+		t.Run("serve_video_file", func(t *testing.T) {
+			// Try to serve our test video file
+			resp, err := http.Get("http://localhost:8081/files/big_buck_bunny_1080p_h264.mov")
+			if err != nil {
+				t.Fatalf("Failed to serve video file: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("Expected status 200 for video file serving, got %d", resp.StatusCode)
+			}
+
+			// Check content type (should be video)
+			contentType := resp.Header.Get("Content-Type")
+			if !strings.HasPrefix(contentType, "video/") && !strings.HasPrefix(contentType, "application/octet-stream") {
+				logger.Info("Content type for video file", zap.String("content_type", contentType))
+			}
+
+			logger.Info("Video file served successfully")
+		})
+
+		// Test non-video file blocking
+		t.Run("block_non_video_files", func(t *testing.T) {
+			// Try to serve a non-video file (should be blocked)
+			resp, err := http.Get("http://localhost:8081/files/go.mod")
+			if err != nil {
+				t.Fatalf("Failed to test non-video file serving: %v", err)
+			}
+			resp.Body.Close()
+
+			if resp.StatusCode != http.StatusForbidden {
+				t.Fatalf("Expected status 403 for non-video file, got %d", resp.StatusCode)
+			}
+
+			logger.Info("Non-video file access blocked successfully")
+		})
+
+		// Test file not found
+		t.Run("file_not_found", func(t *testing.T) {
+			resp, err := http.Get("http://localhost:8081/files/nonexistent.mp4")
+			if err != nil {
+				t.Fatalf("Failed to test nonexistent file: %v", err)
+			}
+			resp.Body.Close()
+
+			if resp.StatusCode != http.StatusNotFound {
+				t.Fatalf("Expected status 404 for nonexistent file, got %d", resp.StatusCode)
+			}
+
+			logger.Info("File not found handled correctly")
+		})
+
+		// Test invalid methods
+		t.Run("invalid_methods", func(t *testing.T) {
+			endpoints := []string{"/files", "/files/test.mp4"}
+			methods := []string{"POST", "PUT", "DELETE", "PATCH"}
+
+			for _, endpoint := range endpoints {
+				for _, method := range methods {
+					req, err := http.NewRequest(method, "http://localhost:8081"+endpoint, nil)
+					if err != nil {
+						t.Fatalf("Failed to create %s request for %s: %v", method, endpoint, err)
+					}
+
+					client := &http.Client{}
+					resp, err := client.Do(req)
+					if err != nil {
+						t.Fatalf("Failed to send %s request to %s: %v", method, endpoint, err)
+					}
+					resp.Body.Close()
+
+					if resp.StatusCode != http.StatusMethodNotAllowed {
+						t.Fatalf("Expected status 405 for %s %s, got %d", method, endpoint, resp.StatusCode)
+					}
+				}
+			}
+
+			logger.Info("Invalid methods test passed for file endpoints")
+		})
+	})
+
+	// Test 8: WebRTC status integration with streaming
 	t.Run("webrtc_status_during_streaming", func(t *testing.T) {
 		// Start streaming again to test WebRTC status during active streaming
 		config := streammanager.Config{
-			Destination:      "rtmp://localhost:1936/live/test2",
-			RTMPAddr:         ":1937",
-			Encoder:          "libx264",
-			Preset:           "ultrafast",
-			ProgressEndpoint: "http://localhost:8081/progress",
-			LogLevel:         "warning",
+			Destination: "rtmp://localhost:1936/live/test2",
+			RTMPAddr:    ":1937",
+			Encoder:     "libx264",
+			Preset:      "ultrafast",
+			LogLevel:    "warning",
 		}
 
 		configJSON, err := json.Marshal(config)
