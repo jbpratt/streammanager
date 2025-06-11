@@ -4,14 +4,17 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/jbpratt/streammanager/internal/api"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 // TODO: multistream to a local server to provide a preview
@@ -20,12 +23,18 @@ import (
 func main() {
 	addr := flag.String("http-addr", ":8080", "server address")
 	rtmpAddr := flag.String("rtmp-addr", ":1935", "RTMP server address")
+	logLevel := flag.String("log-level", "info", "Log level (debug, info)")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	logger, err := zap.NewDevelopment()
+	var level zapcore.Level
+	if err := level.UnmarshalText([]byte(strings.ToLower(*logLevel))); err != nil {
+		log.Fatalf("Invalid log level: %v", err)
+	}
+
+	logger, err := zap.NewDevelopment(zap.IncreaseLevel(level))
 	if err != nil {
 		panic(err)
 	}
