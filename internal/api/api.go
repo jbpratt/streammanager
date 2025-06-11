@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,11 +16,11 @@ import (
 )
 
 type Server struct {
-	sm         *streammanager.StreamManager
-	logger     *zap.Logger
-	rtmpAddr   string
-	webrtcSrv  WebRTCStatusProvider
-	fileDir    string // Directory to serve files from
+	sm        *streammanager.StreamManager
+	logger    *zap.Logger
+	rtmpAddr  string
+	webrtcSrv WebRTCStatusProvider
+	fileDir   string // Directory to serve files from
 }
 
 type WebRTCStatusProvider interface {
@@ -31,13 +32,13 @@ func New(logger *zap.Logger, rtmpAddr string) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Default to current directory, can be configured later
 	fileDir, err := os.Getwd()
 	if err != nil {
 		fileDir = "."
 	}
-	
+
 	return &Server{
 		sm:       sm,
 		logger:   logger,
@@ -55,11 +56,11 @@ func (s *Server) SetFileDirectory(dir string) error {
 	if err != nil {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
-	
+
 	if _, err := os.Stat(absDir); os.IsNotExist(err) {
 		return fmt.Errorf("directory does not exist: %s", absDir)
 	}
-	
+
 	s.fileDir = absDir
 	s.logger.Info("File directory set", zap.String("directory", absDir))
 	return nil
@@ -179,12 +180,35 @@ func (s *Server) handleEnqueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, err := filepath.Abs(req.File)
+	var file string
+	var err error
+
+	// Check if the file path is absolute or relative
+	if filepath.IsAbs(req.File) {
+		// If absolute, use as-is (for local file uploads)
+		file = req.File
+	} else {
+		// If relative, resolve against the configured file directory (for server files)
+		file = filepath.Join(s.fileDir, req.File)
+	}
+
+	// Get absolute path and validate file exists
+	file, err = filepath.Abs(file)
 	if err != nil {
 		s.logger.Error("Failed to get absolute path for file",
 			zap.String("file", req.File),
+			zap.String("resolved", file),
 			zap.Error(err))
-		http.Error(w, "Unable to find file", http.StatusBadRequest)
+		http.Error(w, "Unable to resolve file path", http.StatusBadRequest)
+		return
+	}
+
+	// Validate that the file exists
+	if _, err := os.Stat(file); os.IsNotExist(err) {
+		s.logger.Error("File does not exist",
+			zap.String("file", file),
+			zap.String("original", req.File))
+		http.Error(w, "File not found", http.StatusNotFound)
 		return
 	}
 
@@ -292,7 +316,7 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 	}
 
 	progress, hasProgress := s.sm.GetLatestProgress()
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]any{
 		"hasProgress": hasProgress,
@@ -335,30 +359,30 @@ type FileInfo struct {
 func (s *Server) isSecurePath(requestedPath string) (string, bool) {
 	// Clean the path to prevent directory traversal
 	cleanPath := filepath.Clean(requestedPath)
-	
+
 	// Prevent access to parent directories
 	if strings.Contains(cleanPath, "..") {
 		return "", false
 	}
-	
+
 	// Build the full path
 	fullPath := filepath.Join(s.fileDir, cleanPath)
-	
+
 	// Ensure the resolved path is still within our allowed directory
 	absFileDir, err := filepath.Abs(s.fileDir)
 	if err != nil {
 		return "", false
 	}
-	
+
 	absFullPath, err := filepath.Abs(fullPath)
 	if err != nil {
 		return "", false
 	}
-	
+
 	if !strings.HasPrefix(absFullPath, absFileDir) {
 		return "", false
 	}
-	
+
 	return absFullPath, true
 }
 
@@ -479,13 +503,8 @@ func isVideoFile(filename string) bool {
 	ext := strings.ToLower(filepath.Ext(filename))
 	videoExtensions := []string{
 		".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".m4v",
-		".mpg", ".mpeg", ".3gp", ".ogg", ".ts", ".mts", ".m2ts",
+		".mpg", ".mpeg",
 	}
-	
-	for _, validExt := range videoExtensions {
-		if ext == validExt {
-			return true
-		}
-	}
-	return false
+
+	return slices.Contains(videoExtensions, ext)
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -480,6 +481,49 @@ a=rtpmap:96 H264/90000`
 		if err := apiServer.SetFileDirectory(testDir); err != nil {
 			t.Fatalf("Failed to set file directory: %v", err)
 		}
+
+		// Test enqueue with server file path
+		t.Run("enqueue_server_file", func(t *testing.T) {
+			reqBody := map[string]interface{}{
+				"file": "big_buck_bunny_1080p_h264.mov", // Relative path - should resolve against file directory
+				"overlay": map[string]interface{}{
+					"showFilename": true,
+					"position":     "bottom-right",
+					"fontSize":     24,
+				},
+			}
+
+			reqJSON, err := json.Marshal(reqBody)
+			if err != nil {
+				t.Fatalf("Failed to marshal request: %v", err)
+			}
+
+			resp, err := http.Post("http://localhost:8081/enqueue", "application/json", bytes.NewReader(reqJSON))
+			if err != nil {
+				t.Fatalf("Failed to enqueue server file: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				t.Fatalf("Expected status 200 for server file enqueue, got %d: %s", resp.StatusCode, string(body))
+			}
+
+			var result map[string]string
+			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+				t.Fatalf("Failed to decode response: %v", err)
+			}
+
+			// The resolved file path should be absolute and include the test directory
+			expectedPath := filepath.Join(testDir, "big_buck_bunny_1080p_h264.mov")
+			expectedAbsPath, _ := filepath.Abs(expectedPath)
+			
+			if result["file"] != expectedAbsPath {
+				t.Fatalf("Expected absolute file path %s, got %s", expectedAbsPath, result["file"])
+			}
+
+			logger.Info("Server file enqueue test passed", zap.String("resolved_path", result["file"]))
+		})
 
 		// Test file listing
 		t.Run("list_files", func(t *testing.T) {
