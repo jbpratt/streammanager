@@ -167,6 +167,49 @@
     <div id="status" class="mt-4 p-3 rounded bg-gray-100 text-sm hidden"></div>
     <div id="errorNotification" class="mt-4 hidden"></div>
     <div class="mt-6">
+      <h2 class="text-lg font-semibold mb-3">📺 Live Preview (WebRTC)</h2>
+      <div class="border rounded p-4 bg-gray-50">
+        <div class="flex justify-between items-center mb-3">
+          <div class="flex items-center space-x-2">
+            <button id="whepConnect" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+              Connect to Stream
+            </button>
+            <button id="whepDisconnect" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 hidden">
+              Disconnect
+            </button>
+          </div>
+          <div id="webrtcStatus" class="text-sm text-gray-600">
+            Not connected
+          </div>
+        </div>
+        <div class="relative bg-black rounded overflow-hidden" style="aspect-ratio: 16/9;">
+          <video id="whepVideo" autoplay muted controls class="w-full h-full object-contain">
+            <source type="video/mp4">
+            Your browser does not support the video tag.
+          </video>
+          <div id="noStreamMessage" class="absolute inset-0 flex items-center justify-center text-white text-lg">
+            <div class="text-center">
+              <div class="text-4xl mb-2">📺</div>
+              <div>No stream available</div>
+              <div class="text-sm text-gray-300 mt-1">Start streaming and connect to see live preview</div>
+            </div>
+          </div>
+        </div>
+        <div id="webrtcStats" class="mt-3 text-xs text-gray-500 hidden">
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <span class="font-medium">Connection:</span>
+              <span id="connectionState">-</span>
+            </div>
+            <div>
+              <span class="font-medium">ICE State:</span>
+              <span id="iceState">-</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="mt-6">
       <h2 class="text-lg font-semibold mb-3">📊 Stream Progress</h2>
       <div id="progress" class="p-3 rounded bg-green-50 text-sm border mb-4 hidden">
         <div class="grid grid-cols-2 gap-4">
