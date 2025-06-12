@@ -21,6 +21,8 @@ import (
 // TODO: multistream to a local server to provide a preview
 // TODO: allow setting subtitles in the overlay options
 // TODO: allow starting a file from a particular timestamp
+// TODO: improve the fps in the progress to not estimate total frames instead using ffprobe to calculate
+//       ffprobe -v quiet -select_streams v:0 -show_entries stream=nb_frames,duration,r_frame_rate -of json
 
 func main() {
 	addr := flag.String("http-addr", ":8080", "server address")

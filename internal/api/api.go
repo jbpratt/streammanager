@@ -24,7 +24,7 @@ type Server struct {
 }
 
 type WebRTCStatusProvider interface {
-	GetStatus() map[string]interface{}
+	GetStatus() map[string]any
 }
 
 func New(logger *zap.Logger, rtmpAddr string) (*Server, error) {
@@ -333,7 +333,7 @@ func (s *Server) handleWebRTCStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	status := make(map[string]interface{})
+	status := make(map[string]any)
 	if s.webrtcSrv != nil {
 		status = s.webrtcSrv.GetStatus()
 	} else {
@@ -441,7 +441,7 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	s.logger.Debug("Listed files", zap.String("path", safePath), zap.Int("count", len(files)))
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]any{
 		"path":  dirPath,
 		"files": files,
 	}); err != nil {

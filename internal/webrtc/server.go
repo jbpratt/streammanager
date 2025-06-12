@@ -81,7 +81,7 @@ func (s *Server) handleWHIP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handleWHIPOptions(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleWHIPOptions(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
@@ -138,7 +138,7 @@ func (s *Server) handleWHIPOffer(w http.ResponseWriter, r *http.Request) {
 
 	// Set up track handling
 	peerConnection.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-		s.logger.Info("New track received", 
+		s.logger.Info("New track received",
 			zap.String("codec", track.Codec().MimeType),
 			zap.String("track_id", track.ID()))
 
@@ -169,7 +169,7 @@ func (s *Server) handleWHIPOffer(w http.ResponseWriter, r *http.Request) {
 	// Set the handler for Peer connection state
 	peerConnection.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		s.logger.Info("WHIP connection state changed", zap.String("state", state.String()))
-		
+
 		if state == webrtc.PeerConnectionStateFailed || state == webrtc.PeerConnectionStateClosed {
 			if s.broadcaster.peerConnection == peerConnection {
 				s.broadcaster.peerConnection = nil
@@ -230,7 +230,7 @@ func (s *Server) handleWHEP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handleWHEPOptions(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleWHEPOptions(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
@@ -299,10 +299,10 @@ func (s *Server) handleWHEPOffer(w http.ResponseWriter, r *http.Request) {
 
 	// Set the handler for Peer connection state
 	peerConnection.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		s.logger.Info("WHEP connection state changed", 
+		s.logger.Info("WHEP connection state changed",
 			zap.String("subscriber_id", subscriberID),
 			zap.String("state", state.String()))
-		
+
 		if state == webrtc.PeerConnectionStateFailed || state == webrtc.PeerConnectionStateClosed {
 			s.broadcaster.mu.Lock()
 			delete(s.broadcaster.subscribers, subscriberID)
