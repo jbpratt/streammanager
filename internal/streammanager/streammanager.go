@@ -403,7 +403,10 @@ func (s *StreamManager) writeToFIFO(ctx context.Context, source string, overlay 
 
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 	cmd.Stdout = fifo
-	cmd.Stderr = os.Stderr
+
+	// Capture stderr for error reporting
+	var stderrBuf strings.Builder
+	cmd.Stderr = &stderrBuf
 
 	s.logger.Debug("Running ffmpeg write command", zap.Stringer("cmd", cmd))
 
@@ -411,6 +414,10 @@ func (s *StreamManager) writeToFIFO(ctx context.Context, source string, overlay 
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+		stderrOutput := strings.TrimSpace(stderrBuf.String())
+		if stderrOutput != "" {
+			return fmt.Errorf("ffmpeg failed: %w\nFFmpeg stderr: %s", err, stderrOutput)
 		}
 		return err
 	}
@@ -488,7 +495,10 @@ func (s *StreamManager) readFromFIFO(ctx context.Context, fifo string) error {
 	)
 
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	cmd.Stderr = os.Stderr
+
+	// Capture stderr for error reporting
+	var stderrBuf strings.Builder
+	cmd.Stderr = &stderrBuf
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -508,6 +518,10 @@ func (s *StreamManager) readFromFIFO(ctx context.Context, fifo string) error {
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+		stderrOutput := strings.TrimSpace(stderrBuf.String())
+		if stderrOutput != "" {
+			return fmt.Errorf("ffmpeg failed: %w\nFFmpeg stderr: %s", err, stderrOutput)
 		}
 		return err
 	}
@@ -680,6 +694,10 @@ func (s *StreamManager) getFileDuration(filePath string) (float64, error) {
 
 	output, err := cmd.Output()
 	if err != nil {
+		// Try to get stderr from the exit error
+		if exitErr, ok := err.(*exec.ExitError); ok && len(exitErr.Stderr) > 0 {
+			return 0, fmt.Errorf("ffprobe failed: %w\nFFprobe stderr: %s", err, string(exitErr.Stderr))
+		}
 		return 0, fmt.Errorf("ffprobe failed: %w", err)
 	}
 

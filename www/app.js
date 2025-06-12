@@ -514,7 +514,7 @@ class StreamManager {
             errorDiv.innerHTML = `
                 <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-200 px-4 py-3 rounded-lg">
                     <div class="font-semibold">⚠️ FFmpeg Error (${errorTime})</div>
-                    <div class="mt-1 text-sm">${error.message}</div>
+                    <div class="mt-1 text-sm whitespace-pre-wrap">${error.message}</div>
                 </div>
             `;
             errorDiv.classList.remove('hidden');
