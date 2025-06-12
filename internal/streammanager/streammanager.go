@@ -24,6 +24,36 @@ import (
 
 const fifoPath = "/tmp/streampipe.fifo"
 
+// prefixWriter adds a prefix to each line written to the underlying writer
+type prefixWriter struct {
+	prefix string
+	writer io.Writer
+}
+
+func (pw *prefixWriter) Write(p []byte) (n int, err error) {
+	// Split the input into lines and add prefix to each
+	lines := strings.Split(string(p), "\n")
+	var prefixedLines []string
+
+	for i, line := range lines {
+		if i == len(lines)-1 && line == "" {
+			// Don't prefix empty last line (from trailing newline)
+			prefixedLines = append(prefixedLines, line)
+		} else {
+			prefixedLines = append(prefixedLines, pw.prefix+line)
+		}
+	}
+
+	prefixedOutput := strings.Join(prefixedLines, "\n")
+	_, err = pw.writer.Write([]byte(prefixedOutput))
+	if err != nil {
+		return 0, err
+	}
+
+	// Return the number of bytes from the original input
+	return len(p), nil
+}
+
 type entry struct {
 	ID             string          `json:"id"`
 	File           string          `json:"file"`
@@ -404,9 +434,31 @@ func (s *StreamManager) writeToFIFO(ctx context.Context, source string, overlay 
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 	cmd.Stdout = fifo
 
-	// Capture stderr for error reporting while also writing to stdout for real-time visibility
+	// Capture stderr for error reporting while also writing to file for preprocessing logs
 	var stderrBuf strings.Builder
-	cmd.Stderr = io.MultiWriter(&stderrBuf, os.Stdout)
+
+	// Create temporary log file for ffmpeg preprocessing output
+	logFile, err := os.CreateTemp("", "streammanager-ffmpeg-write-*.log")
+	if err != nil {
+		s.logger.Warn("Failed to create ffmpeg write log file, falling back to stdout", zap.Error(err))
+		fallbackWriter := &prefixWriter{
+			prefix: "[PREPROCESSING] ",
+			writer: os.Stdout,
+		}
+		cmd.Stderr = io.MultiWriter(&stderrBuf, fallbackWriter)
+	} else {
+		defer func() {
+			logFile.Close()
+			// Log the file location for reference
+			s.logger.Debug("FFmpeg preprocessing output written to", zap.String("logFile", logFile.Name()))
+		}()
+		// Create a prefixed writer for preprocessing process identification in log file
+		preprocessingWriter := &prefixWriter{
+			prefix: "[PREPROCESSING] ",
+			writer: logFile,
+		}
+		cmd.Stderr = io.MultiWriter(&stderrBuf, preprocessingWriter)
+	}
 
 	s.logger.Debug("Running ffmpeg write command", zap.Stringer("cmd", cmd))
 
@@ -496,9 +548,15 @@ func (s *StreamManager) readFromFIFO(ctx context.Context, fifo string) error {
 
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 
-	// Capture stderr for error reporting while also writing to stdout for real-time visibility
+	// Capture stderr for error reporting while also writing to stdout for streaming logs
 	var stderrBuf strings.Builder
-	cmd.Stderr = io.MultiWriter(&stderrBuf, os.Stdout)
+
+	// Create a prefixed writer for streaming process identification
+	streamingWriter := &prefixWriter{
+		prefix: "[STREAMING] ",
+		writer: os.Stdout,
+	}
+	cmd.Stderr = io.MultiWriter(&stderrBuf, streamingWriter)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
