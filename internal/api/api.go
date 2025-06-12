@@ -21,7 +21,7 @@ type Server struct {
 	logger    *zap.Logger
 	rtmpAddr  string
 	webrtcSrv WebRTCStatusProvider
-	fileDir   string // Directory to serve files from
+	fileDir   string           // Directory to serve files from
 	logLevel  *zap.AtomicLevel // Atomic log level for runtime changes
 }
 
@@ -547,7 +547,7 @@ func (s *Server) handleGetLogLevel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	currentLevel := s.logLevel.Level()
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]string{
 		"level": currentLevel.String(),
@@ -587,8 +587,8 @@ func (s *Server) handleSetLogLevel(w http.ResponseWriter, r *http.Request) {
 
 	oldLevel := s.logLevel.Level()
 	s.logLevel.SetLevel(level)
-	
-	s.logger.Info("Application log level changed", 
+
+	s.logger.Info("Application log level changed",
 		zap.String("old_level", oldLevel.String()),
 		zap.String("new_level", level.String()))
 

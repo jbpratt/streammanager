@@ -40,7 +40,7 @@ func main() {
 
 	// Create atomic level for runtime changes
 	atomicLevel := zap.NewAtomicLevelAt(level)
-	
+
 	logger, err := zap.NewDevelopment(zap.IncreaseLevel(atomicLevel))
 	if err != nil {
 		panic(err)

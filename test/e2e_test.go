@@ -1354,7 +1354,7 @@ a=rtpmap:96 H264/90000`
 
 		// Test starting stream with different FFmpeg log levels
 		testLevels := []string{"quiet", "error", "warning", "info", "verbose", "debug"}
-		
+
 		for _, logLevel := range testLevels {
 			config := streammanager.Config{
 				Destination: "rtmp://localhost:1936/live/test",
@@ -1391,7 +1391,7 @@ a=rtpmap:96 H264/90000`
 			}
 
 			time.Sleep(100 * time.Millisecond)
-			
+
 			t.Logf("Successfully tested FFmpeg log level: %s", logLevel)
 		}
 

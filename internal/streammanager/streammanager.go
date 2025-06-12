@@ -403,7 +403,7 @@ func (s *StreamManager) writeToFIFO(ctx context.Context, source string, overlay 
 
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 	cmd.Stdout = fifo
-	
+
 	// Capture stderr for error reporting while also writing to stdout for real-time visibility
 	var stderrBuf strings.Builder
 	cmd.Stderr = io.MultiWriter(&stderrBuf, os.Stdout)
@@ -495,7 +495,7 @@ func (s *StreamManager) readFromFIFO(ctx context.Context, fifo string) error {
 	)
 
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	
+
 	// Capture stderr for error reporting while also writing to stdout for real-time visibility
 	var stderrBuf strings.Builder
 	cmd.Stderr = io.MultiWriter(&stderrBuf, os.Stdout)
