@@ -29,8 +29,8 @@ type WebRTCStatusProvider interface {
 	GetStatus() map[string]any
 }
 
-func New(logger *zap.Logger, rtmpAddr string, logLevel *zap.AtomicLevel) (*Server, error) {
-	sm, err := streammanager.New(logger)
+func New(logger *zap.Logger, rtmpAddr string, logLevel *zap.AtomicLevel, fifoPath string) (*Server, error) {
+	sm, err := streammanager.New(logger, fifoPath)
 	if err != nil {
 		return nil, err
 	}

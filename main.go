@@ -27,6 +27,7 @@ func main() {
 	rtmpAddr := flag.String("rtmp-addr", ":1935", "RTMP server address")
 	logLevel := flag.String("log-level", "info", "Log level (debug, info)")
 	fileDir := flag.String("file-dir", ".", "Directory to serve files from")
+	fifoPath := flag.String("fifo-path", "/tmp/streampipe.fifo", "Path to the FIFO file")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -48,7 +49,7 @@ func main() {
 		_ = logger.Sync() // Safe to ignore error in defer during shutdown
 	}()
 
-	apiServer, err := api.New(logger, *rtmpAddr, &atomicLevel)
+	apiServer, err := api.New(logger, *rtmpAddr, &atomicLevel, *fifoPath)
 	if err != nil {
 		logger.Fatal("Failed to create API server", zap.Error(err))
 	}

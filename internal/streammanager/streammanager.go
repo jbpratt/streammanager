@@ -22,8 +22,6 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const fifoPath = "/tmp/streampipe.fifo"
-
 // prefixWriter adds a prefix to each line written to the underlying writer
 type prefixWriter struct {
 	prefix string
@@ -95,15 +93,17 @@ type StreamManager struct {
 	lastError     string
 	lastErrorTime time.Time
 	progressCh    chan progressData
+	fifoPath      string
 }
 
-func New(logger *zap.Logger) (*StreamManager, error) {
+func New(logger *zap.Logger, fifoPath string) (*StreamManager, error) {
 	return &StreamManager{
 		mu:          sync.RWMutex{},
 		logger:      logger,
 		queue:       make([]entry, 0),
 		queueNotify: make(chan struct{}, 1),
 		progressCh:  make(chan progressData, 100),
+		fifoPath:    fifoPath,
 	}, nil
 }
 
@@ -123,7 +123,7 @@ func (s *StreamManager) cleanup() {
 	s.ctx = nil
 	s.cancel = nil
 
-	_ = os.Remove(fifoPath)
+	_ = os.Remove(s.fifoPath)
 }
 
 func (s *StreamManager) Run(ctx context.Context, cfg Config) error {
@@ -141,8 +141,8 @@ func (s *StreamManager) Run(ctx context.Context, cfg Config) error {
 	// Ensure cleanup runs on any exit
 	defer s.cleanup()
 
-	_ = os.Remove(fifoPath)
-	if err := syscall.Mkfifo(fifoPath, 0o0644); err != nil {
+	_ = os.Remove(s.fifoPath)
+	if err := syscall.Mkfifo(s.fifoPath, 0o0644); err != nil {
 		return fmt.Errorf("failed to create fifo: %w", err)
 	}
 
@@ -153,7 +153,7 @@ func (s *StreamManager) Run(ctx context.Context, cfg Config) error {
 
 	eg.Go(func() error {
 		s.logger.Debug("Streaming FIFO reader", zap.String("destination", s.config.Destination))
-		if err := s.readFromFIFO(s.ctx, fifoPath); err != nil {
+		if err := s.readFromFIFO(s.ctx, s.fifoPath); err != nil {
 			if errors.Is(err, context.Canceled) {
 				s.logger.Debug("FIFO reader cancelled")
 				return nil
@@ -327,7 +327,7 @@ func (s *StreamManager) writeToFIFO(ctx context.Context, source string, overlay 
 		return fmt.Errorf("subtitle validation failed: %w", err)
 	}
 
-	fifo, err := os.OpenFile(fifoPath, os.O_WRONLY, os.ModeNamedPipe)
+	fifo, err := os.OpenFile(s.fifoPath, os.O_WRONLY, os.ModeNamedPipe)
 	if err != nil {
 		return err
 	}
@@ -824,10 +824,8 @@ func (s *StreamManager) validateSubtitleFile(subtitleFile string) error {
 	ext := strings.ToLower(filepath.Ext(subtitleFile))
 	supportedExts := []string{".srt", ".vtt", ".ass", ".ssa", ".sub", ".sbv"}
 
-	for _, supportedExt := range supportedExts {
-		if ext == supportedExt {
-			return nil
-		}
+	if slices.Contains(supportedExts, ext) {
+		return nil
 	}
 
 	return fmt.Errorf("unsupported subtitle format: %s (supported: %s)", ext, strings.Join(supportedExts, ", "))
