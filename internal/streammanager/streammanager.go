@@ -580,15 +580,37 @@ func (s *StreamManager) readFromFIFO(ctx context.Context, fifo string) error {
 
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 
-	// Capture stderr for error reporting while also writing to stdout for streaming logs
+	// Capture stderr for error reporting while also writing to file and stdout for streaming logs
 	var stderrBuf strings.Builder
 
-	// Create a prefixed writer for streaming process identification
-	streamingWriter := &prefixWriter{
-		prefix: "[STREAMING] ",
-		writer: os.Stdout,
+	// Create temporary log file for ffmpeg streaming output
+	logFile, err := os.CreateTemp("", "streammanager-ffmpeg-read-*.log")
+	if err != nil {
+		s.logger.Warn("Failed to create ffmpeg read log file, falling back to stdout only", zap.Error(err))
+		// Fallback to stdout only
+		streamingWriter := &prefixWriter{
+			prefix: "[STREAMING] ",
+			writer: os.Stdout,
+		}
+		cmd.Stderr = io.MultiWriter(&stderrBuf, streamingWriter)
+	} else {
+		defer func() {
+			logFile.Close()
+			// Log the file location for reference
+			s.logger.Debug("FFmpeg streaming output written to", zap.String("logFile", logFile.Name()))
+		}()
+		
+		// Create writers for both file and stdout
+		fileWriter := &prefixWriter{
+			prefix: "[STREAMING] ",
+			writer: logFile,
+		}
+		stdoutWriter := &prefixWriter{
+			prefix: "[STREAMING] ",
+			writer: os.Stdout,
+		}
+		cmd.Stderr = io.MultiWriter(&stderrBuf, fileWriter, stdoutWriter)
 	}
-	cmd.Stderr = io.MultiWriter(&stderrBuf, streamingWriter)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
