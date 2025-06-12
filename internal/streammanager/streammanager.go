@@ -371,7 +371,7 @@ func (s *StreamManager) writeToFIFO(ctx context.Context, source string, overlay 
 	}
 
 	// Determine if we need to re-encode in writeToFIFO
-	// Only re-encode here for overlays; bitrate limiting will be handled in readFromFIFO
+	// Only re-encode here for overlays; codec conversion will be handled in readFromFIFO
 	needsReencoding := overlay.ShowFilename || subtitleFile != ""
 
 	// Build video filter chain
@@ -477,6 +477,13 @@ func (s *StreamManager) writeToFIFO(ctx context.Context, source string, overlay 
 }
 
 func (s *StreamManager) readFromFIFO(ctx context.Context, fifo string) error {
+	// Get the current source file for codec probing
+	var sourceFile string
+	s.mu.RLock()
+	if s.currentEntry != nil {
+		sourceFile = s.currentEntry.File
+	}
+	s.mu.RUnlock()
 	dest := s.config.Destination
 	if s.config.Username != "" && s.config.Password != "" {
 		if strings.HasPrefix(dest, "rtmp://") {
@@ -499,8 +506,15 @@ func (s *StreamManager) readFromFIFO(ctx context.Context, fifo string) error {
 		"-fflags", "+igndts",
 	}
 
+	// Probe input file once to get all needed information
+	// Use source file instead of FIFO to avoid probing issues
+	var probeInfo fileProbeInfo
+	if sourceFile != "" {
+		probeInfo = s.probeFile(sourceFile)
+	}
+
 	// Handle video encoding - consolidate keyframes and bitrate limiting here
-	needsVideoReencoding := s.config.KeyframeInterval != "" || s.config.MaxBitrate != ""
+	needsVideoReencoding := s.config.KeyframeInterval != "" || s.config.MaxBitrate != "" || probeInfo.needsVideoReencoding
 
 	if needsVideoReencoding {
 		// Re-encode video for keyframe interval and/or bitrate limiting
@@ -514,6 +528,11 @@ func (s *StreamManager) readFromFIFO(ctx context.Context, fifo string) error {
 		}
 
 		args = append(args, "-c:v", encoder, "-preset", preset)
+
+		// Force 8-bit output for compatibility when re-encoding due to codec issues
+		if probeInfo.needsVideoReencoding {
+			args = append(args, "-pix_fmt", "yuv420p") // Force 8-bit
+		}
 
 		// Add keyframe settings if specified
 		if s.config.KeyframeInterval != "" {
@@ -538,8 +557,22 @@ func (s *StreamManager) readFromFIFO(ctx context.Context, fifo string) error {
 		args = append(args, "-c:v", "copy")
 	}
 
+	// Handle stream mapping if needed (only for complex files with subtitles/many streams)
+	if probeInfo.needsExplicitMapping {
+		args = append(args,
+			"-map", "0:v:0", // Map first video stream
+			"-map", "0:a:0", // Map first audio stream only
+		)
+	}
+
+	// Handle audio encoding based on codec compatibility
+	if probeInfo.needsAudioReencoding {
+		args = append(args, "-c:a", "aac", "-b:a", "128k", "-ac", "2")
+	} else {
+		args = append(args, "-c:a", "aac", "-ac", "2")
+	}
+
 	args = append(args,
-		"-c:a", "aac",
 		"-f", "flv",
 		"-flvflags", "no_duration_filesize",
 		dest,
@@ -779,6 +812,143 @@ func (s *StreamManager) getFileDuration(filePath string) (float64, error) {
 	}
 
 	return duration, nil
+}
+
+// fileProbeInfo contains all the information we need from ffprobe
+type fileProbeInfo struct {
+	needsVideoReencoding bool
+	needsAudioReencoding bool
+	needsExplicitMapping bool
+	duration             float64
+}
+
+// probeFile runs ffprobe once and extracts all needed information
+func (s *StreamManager) probeFile(inputPath string) fileProbeInfo {
+	cmd := exec.Command("ffprobe",
+		"-v", "quiet",
+		"-print_format", "json",
+		"-show_format",
+		"-show_streams",
+		inputPath,
+	)
+
+	output, err := cmd.Output()
+	if err != nil {
+		s.logger.Warn("Failed to probe file, assuming re-encoding needed", zap.Error(err))
+		return fileProbeInfo{
+			needsVideoReencoding: true,
+			needsAudioReencoding: true,
+			needsExplicitMapping: true,
+			duration:             0,
+		}
+	}
+
+	var result struct {
+		Streams []struct {
+			CodecType string `json:"codec_type"`
+			CodecName string `json:"codec_name"`
+			PixFmt    string `json:"pix_fmt"`
+			Profile   string `json:"profile"`
+			Duration  string `json:"duration"`
+		} `json:"streams"`
+		Format struct {
+			Duration string `json:"duration"`
+		} `json:"format"`
+	}
+
+	if err := json.Unmarshal(output, &result); err != nil {
+		s.logger.Warn("Failed to parse ffprobe output", zap.Error(err))
+		return fileProbeInfo{
+			needsVideoReencoding: true,
+			needsAudioReencoding: true,
+			needsExplicitMapping: true,
+			duration:             0,
+		}
+	}
+
+	info := fileProbeInfo{}
+
+	// Analyze streams
+	var videoStream, audioStream *struct {
+		CodecType string `json:"codec_type"`
+		CodecName string `json:"codec_name"`
+		PixFmt    string `json:"pix_fmt"`
+		Profile   string `json:"profile"`
+		Duration  string `json:"duration"`
+	}
+
+	hasSubtitles := false
+	streamCount := len(result.Streams)
+
+	for i := range result.Streams {
+		stream := &result.Streams[i]
+		switch stream.CodecType {
+		case "video":
+			if videoStream == nil {
+				videoStream = stream
+			}
+		case "audio":
+			if audioStream == nil {
+				audioStream = stream
+			}
+		case "subtitle":
+			hasSubtitles = true
+		}
+	}
+
+	// Determine video re-encoding needs
+	if videoStream != nil {
+		switch videoStream.CodecName {
+		case "hevc", "h265":
+			info.needsVideoReencoding = true
+		case "h264", "avc":
+			// Check for 10-bit or incompatible profiles
+			if strings.Contains(videoStream.PixFmt, "10le") || strings.Contains(videoStream.PixFmt, "10be") {
+				info.needsVideoReencoding = true
+			}
+			if strings.Contains(strings.ToLower(videoStream.Profile), "high 4:4:4") ||
+				strings.Contains(strings.ToLower(videoStream.Profile), "high 10") {
+				info.needsVideoReencoding = true
+			}
+		default:
+			info.needsVideoReencoding = true
+		}
+	} else {
+		info.needsVideoReencoding = true
+	}
+
+	// Determine audio re-encoding needs
+	if audioStream != nil {
+		switch audioStream.CodecName {
+		case "aac", "mp3":
+			info.needsAudioReencoding = false
+		default:
+			info.needsAudioReencoding = true
+		}
+	} else {
+		info.needsAudioReencoding = true
+	}
+
+	// Determine explicit mapping needs
+	info.needsExplicitMapping = hasSubtitles || streamCount > 5
+
+	// Extract duration
+	var durationStr string
+	if result.Format.Duration != "" {
+		durationStr = result.Format.Duration
+	} else if videoStream != nil && videoStream.Duration != "" {
+		durationStr = videoStream.Duration
+	} else if audioStream != nil && audioStream.Duration != "" {
+		durationStr = audioStream.Duration
+	}
+
+	if durationStr != "" {
+		if duration, err := strconv.ParseFloat(durationStr, 64); err == nil {
+			info.duration = duration
+		}
+	}
+
+	return info
 }
 
 // parseTimestamp converts timestamp string to seconds
