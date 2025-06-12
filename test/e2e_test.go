@@ -85,7 +85,7 @@ func TestEndToEnd(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Get absolute path to test file
-	testFile, err := filepath.Abs("../big_buck_bunny_1080p_h264.mov")
+	testFile, err := filepath.Abs("out.mp4")
 	if err != nil {
 		t.Fatalf("Failed to get absolute path to test file: %v", err)
 	}
@@ -227,14 +227,6 @@ func TestEndToEnd(t *testing.T) {
 				progressUpdates++
 				progress := progressResp["progress"].(map[string]any)
 
-				// Log progress details
-				logger.Info("Progress update received",
-					zap.Int64("frame", int64(progress["frame"].(float64))),
-					zap.Float64("fps", progress["fps"].(float64)),
-					zap.String("bitrate", progress["bitrate"].(string)),
-					zap.String("out_time", progress["out_time"].(string)),
-					zap.String("speed", progress["speed"].(string)))
-
 				// Validate progress data structure
 				if _, ok := progress["frame"]; !ok {
 					t.Fatal("Expected frame field in progress data")
@@ -245,6 +237,14 @@ func TestEndToEnd(t *testing.T) {
 				if _, ok := progress["timestamp"]; !ok {
 					t.Fatal("Expected timestamp field in progress data")
 				}
+
+				// Log progress details
+				logger.Info("Progress update received",
+					zap.Int64("frame", int64(progress["frame"].(float64))),
+					zap.Float64("fps", progress["fps"].(float64)),
+					zap.String("bitrate", progress["bitrate"].(string)),
+					zap.String("out_time", progress["out_time"].(string)),
+					zap.String("speed", progress["speed"].(string)))
 			}
 
 			time.Sleep(500 * time.Millisecond)
@@ -485,7 +485,7 @@ a=rtpmap:96 H264/90000`
 		// Test enqueue with server file path
 		t.Run("enqueue_server_file", func(t *testing.T) {
 			reqBody := map[string]any{
-				"file": "big_buck_bunny_1080p_h264.mov", // Relative path - should resolve against file directory
+				"file": "test/out.mp4", // Relative path - should resolve against file directory
 				"overlay": map[string]any{
 					"showFilename": true,
 					"position":     "bottom-right",
@@ -515,7 +515,7 @@ a=rtpmap:96 H264/90000`
 			}
 
 			// The resolved file path should be absolute and include the test directory
-			expectedPath := filepath.Join(testDir, "big_buck_bunny_1080p_h264.mov")
+			expectedPath := filepath.Join(testDir, "test/out.mp4")
 			expectedAbsPath, _ := filepath.Abs(expectedPath)
 
 			if result["file"] != expectedAbsPath {
@@ -557,7 +557,7 @@ a=rtpmap:96 H264/90000`
 			foundTestFile := false
 			for _, file := range files {
 				fileMap := file.(map[string]any)
-				if strings.Contains(fileMap["name"].(string), "big_buck_bunny") {
+				if strings.Contains(fileMap["name"].(string), "test") {
 					foundTestFile = true
 					// Validate file info structure
 					requiredFields := []string{"name", "path", "size", "modTime", "isDir"}
@@ -623,7 +623,7 @@ a=rtpmap:96 H264/90000`
 		// Test file serving
 		t.Run("serve_video_file", func(t *testing.T) {
 			// Try to serve our test video file
-			resp, err := http.Get("http://localhost:8081/files/big_buck_bunny_1080p_h264.mov")
+			resp, err := http.Get("http://localhost:8081/files/test/out.mp4")
 			if err != nil {
 				t.Fatalf("Failed to serve video file: %v", err)
 			}
