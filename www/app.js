@@ -16,6 +16,13 @@ class StreamManager {
         this.initEventListeners();
     }
 
+    validateTimestamp(timestamp) {
+        if (!timestamp) return true; // Empty is valid
+        
+        const regex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$/;
+        return regex.test(timestamp);
+    }
+
     initEventListeners() {
         document.getElementById('toggleBtn').addEventListener('click', () => this.toggle());
         document.getElementById('enqueueLocalBtn').addEventListener('click', () => this.enqueueLocal());
@@ -206,6 +213,12 @@ class StreamManager {
         // Get start timestamp from local file input
         const startTimestamp = document.getElementById('startTimestamp').value.trim();
 
+        // Validate timestamp format
+        if (startTimestamp && !this.validateTimestamp(startTimestamp)) {
+            this.showStatus('Start timestamp must be in HH:MM:SS format (e.g., 01:30:45)', false);
+            return;
+        }
+
         try {
             const response = await fetch('/enqueue', {
                 method: 'POST',
@@ -248,6 +261,12 @@ class StreamManager {
 
         // Get start timestamp from server file input
         const startTimestamp = document.getElementById('startTimestampServer').value.trim();
+
+        // Validate timestamp format
+        if (startTimestamp && !this.validateTimestamp(startTimestamp)) {
+            this.showStatus('Start timestamp must be in HH:MM:SS format (e.g., 01:30:45)', false);
+            return;
+        }
 
         try {
             const response = await fetch('/enqueue', {
