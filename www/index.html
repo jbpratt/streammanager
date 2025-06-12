@@ -143,6 +143,9 @@
           <div id="localFileSection" class="space-y-3">
             <input type="file" id="fileInput"
               class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+            
+            <!-- Hidden file input for local subtitle files -->
+            <input type="file" id="subtitleFileInput" accept=".srt,.vtt,.ass,.ssa,.sub,.sbv" style="display: none;">
 
             <!-- File-specific settings -->
             <div class="bg-gray-50 p-3 rounded border">
@@ -152,6 +155,18 @@
                 <input type="text" id="startTimestamp" placeholder="e.g. 0:01:30 or 90"
                   class="w-full px-2 py-1 border border-gray-300 rounded text-xs">
                 <div class="text-xs text-gray-500 mt-1">Start playback from a specific time. Format: HH:MM:SS or seconds
+                </div>
+              </div>
+              <div class="mt-2">
+                <label class="block text-xs text-gray-600 mb-1">Subtitle File (optional):</label>
+                <div class="flex space-x-2">
+                  <input type="text" id="subtitleFile" placeholder="e.g. movie.srt or /path/to/subtitle.srt"
+                    class="flex-1 px-2 py-1 border border-gray-300 rounded text-xs">
+                  <button id="browseSubtitleBtn" class="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
+                    Browse
+                  </button>
+                </div>
+                <div class="text-xs text-gray-500 mt-1">Path to subtitle file. Supports SRT, VTT, ASS formats
                 </div>
               </div>
             </div>
@@ -181,6 +196,18 @@
                 <input type="text" id="startTimestampServer" placeholder="e.g. 0:01:30 or 90"
                   class="w-full px-2 py-1 border border-gray-300 rounded text-xs">
                 <div class="text-xs text-gray-500 mt-1">Start playback from a specific time. Format: HH:MM:SS or seconds
+                </div>
+              </div>
+              <div class="mt-2">
+                <label class="block text-xs text-gray-600 mb-1">Subtitle File (optional):</label>
+                <div class="flex space-x-2">
+                  <input type="text" id="subtitleFileServer" placeholder="e.g. movie.srt or /path/to/subtitle.srt"
+                    class="flex-1 px-2 py-1 border border-gray-300 rounded text-xs">
+                  <button id="browseSubtitleServerBtn" class="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
+                    Browse
+                  </button>
+                </div>
+                <div class="text-xs text-gray-500 mt-1">Path to subtitle file. Supports SRT, VTT, ASS formats
                 </div>
               </div>
             </div>
@@ -287,6 +314,40 @@
       <h2 class="text-lg font-semibold mb-3">📋 Stream Queue</h2>
       <div id="queue" class="p-3 rounded bg-blue-50 text-sm border">
         Loading...
+      </div>
+    </div>
+  </div>
+
+  <!-- Subtitle File Browser Modal -->
+  <div id="subtitleBrowserModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden flex items-center justify-center">
+    <div class="bg-white rounded-lg shadow-lg w-96 max-h-96 flex flex-col">
+      <div class="flex items-center justify-between p-4 border-b">
+        <h3 class="text-lg font-semibold">Browse Subtitle Files</h3>
+        <button id="closeSubtitleBrowser" class="text-gray-500 hover:text-gray-700">✕</button>
+      </div>
+      
+      <div class="flex items-center space-x-2 p-4 border-b">
+        <span id="subtitleCurrentPath" class="text-xs text-gray-600 flex-1">📂 /</span>
+        <button id="refreshSubtitleBtn" class="px-2 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
+          🔄
+        </button>
+      </div>
+      
+      <div id="subtitleFileBrowser" class="flex-1 overflow-y-auto p-4 text-sm">
+        <div class="text-center text-gray-500 py-4">Loading...</div>
+      </div>
+      
+      <div class="p-4 border-t bg-gray-50">
+        <div class="flex space-x-2">
+          <button id="selectSubtitleBtn" 
+            class="flex-1 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
+            disabled>
+            Select File
+          </button>
+          <button id="cancelSubtitleBtn" class="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   </div>

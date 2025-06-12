@@ -1,0 +1,16 @@
+1
+00:00:01,000 --> 00:00:03,000
+🎬 StreamManager Test
+
+2
+00:00:04,000 --> 00:00:07,000
+Subtitle functionality is working!
+
+3
+00:00:08,000 --> 00:00:11,000
+Multiple formats supported:
+SRT, VTT, ASS, SSA
+
+4
+00:00:12,000 --> 00:00:15,000
+✅ E2E Test Passed

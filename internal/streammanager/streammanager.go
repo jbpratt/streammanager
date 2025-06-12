@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -28,6 +29,7 @@ type entry struct {
 	File           string          `json:"file"`
 	Overlay        OverlaySettings `json:"overlay"`
 	StartTimestamp string          `json:"startTimestamp,omitempty"` // Format: HH:MM:SS or seconds
+	SubtitleFile   string          `json:"subtitleFile,omitempty"`   // Path to subtitle file
 }
 
 type OverlaySettings struct {
@@ -153,8 +155,9 @@ func (s *StreamManager) Run(ctx context.Context, cfg Config) error {
 				s.logger.Info("Processing file",
 					zap.String("file", entry.File),
 					zap.String("id", entry.ID),
-					zap.String("startTimestamp", entry.StartTimestamp))
-				if err := s.writeToFIFO(s.currentCtx, entry.File, entry.Overlay, entry.StartTimestamp); err != nil {
+					zap.String("startTimestamp", entry.StartTimestamp),
+					zap.String("subtitleFile", entry.SubtitleFile))
+				if err := s.writeToFIFO(s.currentCtx, entry.File, entry.Overlay, entry.StartTimestamp, entry.SubtitleFile); err != nil {
 					if errors.Is(err, context.Canceled) {
 						s.logger.Info("Processing of file was cancelled",
 							zap.String("file", entry.File),
@@ -188,12 +191,12 @@ func (s *StreamManager) Run(ctx context.Context, cfg Config) error {
 	return err
 }
 
-func (s *StreamManager) Enqueue(file string, overlay OverlaySettings, startTimestamp string) string {
+func (s *StreamManager) Enqueue(file string, overlay OverlaySettings, startTimestamp string, subtitleFile string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	id := fmt.Sprintf("%d", time.Now().UnixNano())
-	entry := entry{ID: id, File: file, Overlay: overlay, StartTimestamp: startTimestamp}
+	entry := entry{ID: id, File: file, Overlay: overlay, StartTimestamp: startTimestamp, SubtitleFile: subtitleFile}
 	s.queue = append(s.queue, entry)
 
 	select {
@@ -283,10 +286,15 @@ func (s *StreamManager) Stop() bool {
 	return false
 }
 
-func (s *StreamManager) writeToFIFO(ctx context.Context, source string, overlay OverlaySettings, startTimestamp string) error {
+func (s *StreamManager) writeToFIFO(ctx context.Context, source string, overlay OverlaySettings, startTimestamp string, subtitleFile string) error {
 	// Validate start timestamp if provided
 	if err := s.validateStartTimestamp(source, startTimestamp); err != nil {
 		return fmt.Errorf("timestamp validation failed: %w", err)
+	}
+
+	// Validate subtitle file if provided
+	if err := s.validateSubtitleFile(subtitleFile); err != nil {
+		return fmt.Errorf("subtitle validation failed: %w", err)
 	}
 
 	fifo, err := os.OpenFile(fifoPath, os.O_WRONLY, os.ModeNamedPipe)
@@ -310,6 +318,11 @@ func (s *StreamManager) writeToFIFO(ctx context.Context, source string, overlay 
 
 	args = append(args, "-i", source)
 
+	// Add subtitle input if provided
+	if subtitleFile != "" {
+		args = append(args, "-i", subtitleFile)
+	}
+
 	// Set log level from config or default to error
 	logLevel := s.config.LogLevel
 	if logLevel == "" {
@@ -329,7 +342,15 @@ func (s *StreamManager) writeToFIFO(ctx context.Context, source string, overlay 
 
 	// Determine if we need to re-encode in writeToFIFO
 	// Only re-encode here for overlays; bitrate limiting will be handled in readFromFIFO
-	needsReencoding := overlay.ShowFilename
+	needsReencoding := overlay.ShowFilename || subtitleFile != ""
+
+	// Build video filter chain
+	var videoFilter string
+
+	// Start with subtitle filter if provided
+	if subtitleFile != "" {
+		videoFilter = fmt.Sprintf("subtitles='%s'", strings.ReplaceAll(subtitleFile, "'", "\\'"))
+	}
 
 	// Add filename overlay if enabled
 	if overlay.ShowFilename {
@@ -357,7 +378,17 @@ func (s *StreamManager) writeToFIFO(ctx context.Context, source string, overlay 
 		filenameFilter := fmt.Sprintf("drawtext=text='%s':fontsize=%d:fontcolor=white:x=%s:y=%s:box=1:boxcolor=black@0.5",
 			filename, overlay.FontSize, x, y)
 
-		args = append(args, "-vf", filenameFilter)
+		// Chain filters if subtitle filter exists
+		if videoFilter != "" {
+			videoFilter = videoFilter + "," + filenameFilter
+		} else {
+			videoFilter = filenameFilter
+		}
+	}
+
+	// Apply video filter if any filters are defined
+	if videoFilter != "" {
+		args = append(args, "-vf", videoFilter)
 		args = append(args, "-fps_mode", "vfr")
 	}
 
@@ -701,4 +732,28 @@ func (s *StreamManager) parseTimestamp(timestamp string) (float64, error) {
 
 	totalSeconds := float64(hours*3600+minutes*60+seconds) + milliseconds
 	return totalSeconds, nil
+}
+
+// validateSubtitleFile validates that the subtitle file exists and has a supported format
+func (s *StreamManager) validateSubtitleFile(subtitleFile string) error {
+	if subtitleFile == "" {
+		return nil // No subtitle file specified
+	}
+
+	// Check if file exists
+	if _, err := os.Stat(subtitleFile); os.IsNotExist(err) {
+		return fmt.Errorf("subtitle file does not exist: %s", subtitleFile)
+	}
+
+	// Check if the file has a supported subtitle extension
+	ext := strings.ToLower(filepath.Ext(subtitleFile))
+	supportedExts := []string{".srt", ".vtt", ".ass", ".ssa", ".sub", ".sbv"}
+
+	for _, supportedExt := range supportedExts {
+		if ext == supportedExt {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("unsupported subtitle format: %s (supported: %s)", ext, strings.Join(supportedExts, ", "))
 }

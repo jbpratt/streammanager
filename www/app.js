@@ -8,6 +8,11 @@ class StreamManager {
         this.selectedFile = null;
         this.fileMode = 'local'; // 'local' or 'server'
 
+        // Subtitle browser properties
+        this.subtitleCurrentPath = '.';
+        this.selectedSubtitleFile = null;
+        this.subtitleTargetInput = null;
+
         // WebRTC properties
         this.whepConnection = null;
         this.isWhepConnected = false;
@@ -18,7 +23,7 @@ class StreamManager {
 
     validateTimestamp(timestamp) {
         if (!timestamp) return true; // Empty is valid
-        
+
         const regex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$/;
         return regex.test(timestamp);
     }
@@ -35,6 +40,14 @@ class StreamManager {
         document.getElementById('localFilesBtn').addEventListener('click', () => this.switchToLocalFiles());
         document.getElementById('serverFilesBtn').addEventListener('click', () => this.switchToServerFiles());
         document.getElementById('refreshBtn').addEventListener('click', () => this.refreshServerFiles());
+
+        // Subtitle browser event listeners
+        document.getElementById('browseSubtitleBtn').addEventListener('click', () => this.handleSubtitleBrowse('local'));
+        document.getElementById('browseSubtitleServerBtn').addEventListener('click', () => this.handleSubtitleBrowse('server'));
+        document.getElementById('closeSubtitleBrowser').addEventListener('click', () => this.closeSubtitleBrowser());
+        document.getElementById('cancelSubtitleBtn').addEventListener('click', () => this.closeSubtitleBrowser());
+        document.getElementById('selectSubtitleBtn').addEventListener('click', () => this.selectSubtitleFile());
+        document.getElementById('refreshSubtitleBtn').addEventListener('click', () => this.refreshSubtitleFiles());
 
         // WebRTC event listeners
         document.getElementById('whepConnect').addEventListener('click', () => this.connectWHEP());
@@ -213,6 +226,9 @@ class StreamManager {
         // Get start timestamp from local file input
         const startTimestamp = document.getElementById('startTimestamp').value.trim();
 
+        // Get subtitle file from local file input
+        const subtitleFile = document.getElementById('subtitleFile').value.trim();
+
         // Validate timestamp format
         if (startTimestamp && !this.validateTimestamp(startTimestamp)) {
             this.showStatus('Start timestamp must be in HH:MM:SS format (e.g., 01:30:45)', false);
@@ -228,7 +244,8 @@ class StreamManager {
                 body: JSON.stringify({
                     file: fileName,
                     overlay: overlaySettings,
-                    startTimestamp: startTimestamp
+                    startTimestamp: startTimestamp,
+                    subtitleFile: subtitleFile
                 })
             });
 
@@ -262,6 +279,9 @@ class StreamManager {
         // Get start timestamp from server file input
         const startTimestamp = document.getElementById('startTimestampServer').value.trim();
 
+        // Get subtitle file from server file input
+        const subtitleFile = document.getElementById('subtitleFileServer').value.trim();
+
         // Validate timestamp format
         if (startTimestamp && !this.validateTimestamp(startTimestamp)) {
             this.showStatus('Start timestamp must be in HH:MM:SS format (e.g., 01:30:45)', false);
@@ -277,7 +297,8 @@ class StreamManager {
                 body: JSON.stringify({
                     file: this.selectedFile,
                     overlay: overlaySettings,
-                    startTimestamp: startTimestamp
+                    startTimestamp: startTimestamp,
+                    subtitleFile: subtitleFile
                 })
             });
 
@@ -820,6 +841,180 @@ class StreamManager {
         } catch (error) {
             console.error('WebRTC status check error:', error);
         }
+    }
+
+    // Subtitle browser methods
+    handleSubtitleBrowse(mode) {
+        if (mode === 'local') {
+            // For local files, trigger the hidden file input
+            const subtitleFileInput = document.getElementById('subtitleFileInput');
+            subtitleFileInput.onchange = (e) => {
+                if (e.target.files.length > 0) {
+                    const fileName = e.target.files[0].name;
+                    document.getElementById('subtitleFile').value = fileName;
+                    // Store the file for potential upload later
+                    this.selectedLocalSubtitleFile = e.target.files[0];
+                }
+            };
+            subtitleFileInput.click();
+        } else {
+            // For server files, open the browser modal
+            this.openSubtitleBrowser('subtitleFileServer');
+        }
+    }
+
+    openSubtitleBrowser(targetInputId) {
+        this.subtitleTargetInput = targetInputId;
+        this.subtitleCurrentPath = '.';
+        this.selectedSubtitleFile = null;
+
+        const modal = document.getElementById('subtitleBrowserModal');
+        modal.classList.remove('hidden');
+
+        this.loadSubtitleFiles();
+        this.updateSubtitleSelection();
+    }
+
+    closeSubtitleBrowser() {
+        const modal = document.getElementById('subtitleBrowserModal');
+        modal.classList.add('hidden');
+
+        this.subtitleTargetInput = null;
+        this.selectedSubtitleFile = null;
+    }
+
+    async loadSubtitleFiles() {
+        const fileBrowser = document.getElementById('subtitleFileBrowser');
+        fileBrowser.innerHTML = '<div class="text-center text-gray-500 py-4">Loading...</div>';
+
+        try {
+            const url = `/files${this.subtitleCurrentPath !== '.' ? '?path=' + encodeURIComponent(this.subtitleCurrentPath) : ''}`;
+            const response = await fetch(url);
+
+            if (response.ok) {
+                const data = await response.json();
+                this.displaySubtitleFiles(data.files, data.path);
+                document.getElementById('subtitleCurrentPath').textContent = `📂 ${data.path === '.' ? '/' : data.path}`;
+            } else {
+                const text = await response.text();
+                fileBrowser.innerHTML = `<div class="text-center text-red-500 py-4">Error: ${text}</div>`;
+            }
+        } catch (error) {
+            fileBrowser.innerHTML = `<div class="text-center text-red-500 py-4">Error: ${error.message}</div>`;
+        }
+    }
+
+    displaySubtitleFiles(files, currentPath) {
+        const fileBrowser = document.getElementById('subtitleFileBrowser');
+
+        // Filter for subtitle files and directories only
+        const subtitleFiles = files.filter(file => file.isDir || this.isSubtitleFile(file.name));
+
+        if (subtitleFiles.length === 0) {
+            fileBrowser.innerHTML = '<div class="text-center text-gray-500 py-4">No subtitle files found</div>';
+            return;
+        }
+
+        let html = '';
+
+        // Add parent directory link if not at root
+        if (currentPath !== '.' && currentPath !== '/') {
+            const parentPath = currentPath.split('/').slice(0, -1).join('/') || '.';
+            html += `
+                <div class="flex items-center p-2 hover:bg-gray-100 cursor-pointer border-b subtitle-entry" data-path="${parentPath}" data-type="parent">
+                    <span class="mr-2">📁</span>
+                    <span class="text-blue-600">..</span>
+                </div>
+            `;
+        }
+
+        // Sort files: directories first, then files
+        const sortedFiles = [...subtitleFiles].sort((a, b) => {
+            if (a.isDir && !b.isDir) return -1;
+            if (!a.isDir && b.isDir) return 1;
+            return a.name.localeCompare(b.name);
+        });
+
+        sortedFiles.forEach(file => {
+            const icon = file.isDir ? '📁' : '📄';
+            const sizeText = file.isDir ? '' : ` (${this.formatFileSize(file.size)})`;
+            const pathClass = file.isDir ? 'text-blue-600' : 'text-gray-700';
+
+            html += `
+                <div class="flex items-center justify-between p-2 hover:bg-gray-100 cursor-pointer border-b subtitle-entry" data-path="${file.path}" data-type="${file.isDir ? 'dir' : 'file'}">
+                    <div class="flex items-center flex-1">
+                        <span class="mr-2">${icon}</span>
+                        <span class="${pathClass}">${file.name}</span>
+                        <span class="text-xs text-gray-500 ml-2">${sizeText}</span>
+                    </div>
+                    ${!file.isDir ? '<div class="text-xs text-gray-400">' + new Date(file.modTime).toLocaleDateString() + '</div>' : ''}
+                </div>
+            `;
+        });
+
+        fileBrowser.innerHTML = html;
+
+        // Add click event listeners
+        fileBrowser.querySelectorAll('.subtitle-entry').forEach(entry => {
+            entry.addEventListener('click', (e) => {
+                const path = e.currentTarget.getAttribute('data-path');
+                const type = e.currentTarget.getAttribute('data-type');
+
+                if (type === 'dir' || type === 'parent') {
+                    this.subtitleCurrentPath = path;
+                    this.loadSubtitleFiles();
+                } else if (type === 'file') {
+                    this.selectSubtitleFileFromBrowser(path);
+                }
+            });
+        });
+    }
+
+    selectSubtitleFileFromBrowser(filePath) {
+        // Clear previous selection
+        document.querySelectorAll('.subtitle-entry').forEach(entry => {
+            entry.classList.remove('bg-blue-100');
+        });
+
+        // Highlight selected file
+        const selectedEntry = document.querySelector(`[data-path="${filePath}"][data-type="file"]`);
+        if (selectedEntry) {
+            selectedEntry.classList.add('bg-blue-100');
+        }
+
+        this.selectedSubtitleFile = filePath;
+        this.updateSubtitleSelection();
+    }
+
+    updateSubtitleSelection() {
+        const selectBtn = document.getElementById('selectSubtitleBtn');
+        if (this.selectedSubtitleFile) {
+            selectBtn.disabled = false;
+            selectBtn.textContent = `Select: ${this.selectedSubtitleFile.split('/').pop()}`;
+        } else {
+            selectBtn.disabled = true;
+            selectBtn.textContent = 'Select File';
+        }
+    }
+
+    selectSubtitleFile() {
+        if (this.selectedSubtitleFile && this.subtitleTargetInput) {
+            const input = document.getElementById(this.subtitleTargetInput);
+            if (input) {
+                input.value = this.selectedSubtitleFile;
+            }
+        }
+        this.closeSubtitleBrowser();
+    }
+
+    refreshSubtitleFiles() {
+        this.loadSubtitleFiles();
+    }
+
+    isSubtitleFile(filename) {
+        const ext = filename.toLowerCase().split('.').pop();
+        const subtitleExtensions = ['srt', 'vtt', 'ass', 'ssa', 'sub', 'sbv'];
+        return subtitleExtensions.includes(ext);
     }
 }
 

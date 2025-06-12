@@ -167,6 +167,7 @@ func (s *Server) handleEnqueue(w http.ResponseWriter, r *http.Request) {
 		File           string                        `json:"file"`
 		Overlay        streammanager.OverlaySettings `json:"overlay"`
 		StartTimestamp string                        `json:"startTimestamp,omitempty"` // Optional start timestamp
+		SubtitleFile   string                        `json:"subtitleFile,omitempty"`   // Optional subtitle file
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -213,11 +214,12 @@ func (s *Server) handleEnqueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := s.sm.Enqueue(file, req.Overlay, req.StartTimestamp)
+	id := s.sm.Enqueue(file, req.Overlay, req.StartTimestamp, req.SubtitleFile)
 	s.logger.Info("File added to queue",
 		zap.String("file", file),
 		zap.String("id", id),
 		zap.String("startTimestamp", req.StartTimestamp),
+		zap.String("subtitleFile", req.SubtitleFile),
 		zap.Any("overlay", req.Overlay))
 
 	w.Header().Set("Content-Type", "application/json")
@@ -426,8 +428,8 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// Only include video files and directories
-		if !entry.IsDir() && !isVideoFile(entry.Name()) {
+		// Only include video files, subtitle files, and directories
+		if !entry.IsDir() && !isVideoFile(entry.Name()) && !isSubtitleFile(entry.Name()) {
 			continue
 		}
 
@@ -487,10 +489,10 @@ func (s *Server) handleServeFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Only serve video files
-	if !isVideoFile(safePath) {
-		s.logger.Warn("Non-video file access attempted", zap.String("path", safePath))
-		http.Error(w, "Only video files can be served", http.StatusForbidden)
+	// Only serve video files and subtitle files
+	if !isVideoFile(safePath) && !isSubtitleFile(safePath) {
+		s.logger.Warn("Non-video/subtitle file access attempted", zap.String("path", safePath))
+		http.Error(w, "Only video and subtitle files can be served", http.StatusForbidden)
 		return
 	}
 
@@ -509,4 +511,13 @@ func isVideoFile(filename string) bool {
 	}
 
 	return slices.Contains(videoExtensions, ext)
+}
+
+func isSubtitleFile(filename string) bool {
+	ext := strings.ToLower(filepath.Ext(filename))
+	subtitleExtensions := []string{
+		".srt", ".vtt", ".ass", ".ssa", ".sub", ".sbv",
+	}
+
+	return slices.Contains(subtitleExtensions, ext)
 }
