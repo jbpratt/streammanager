@@ -44,7 +44,8 @@ func TestEndToEnd(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Create API server with embedded RTMP server
-	apiServer, err := api.New(logger, ":1937")
+	atomicLevel := zap.NewAtomicLevelAt(zap.InfoLevel)
+	apiServer, err := api.New(logger, ":1937", &atomicLevel)
 	if err != nil {
 		t.Fatalf("Failed to create API server: %v", err)
 	}
@@ -1226,5 +1227,174 @@ a=rtpmap:96 H264/90000`
 		resp.Body.Close()
 
 		logger.Info("WebRTC integration test completed")
+	})
+
+	// Test: Log Level API Tests
+	t.Run("log_level_api", func(t *testing.T) {
+		// Test: Get current log level
+		resp, err := http.Get("http://localhost:8081/log-level")
+		if err != nil {
+			t.Fatalf("Failed to get log level: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		var logLevelResp map[string]string
+		if err := json.NewDecoder(resp.Body).Decode(&logLevelResp); err != nil {
+			t.Fatalf("Failed to decode log level response: %v", err)
+		}
+
+		if logLevelResp["level"] == "" {
+			t.Fatalf("Expected log level to be returned")
+		}
+
+		originalLevel := logLevelResp["level"]
+		t.Logf("Current log level: %s", originalLevel)
+
+		// Test: Set log level to debug
+		setLogReq := map[string]string{
+			"level": "debug",
+		}
+		reqJSON, err := json.Marshal(setLogReq)
+		if err != nil {
+			t.Fatalf("Failed to marshal log level request: %v", err)
+		}
+
+		resp, err = http.Post("http://localhost:8081/log-level", "application/json", bytes.NewReader(reqJSON))
+		if err != nil {
+			t.Fatalf("Failed to set log level: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		var setResp map[string]string
+		if err := json.NewDecoder(resp.Body).Decode(&setResp); err != nil {
+			t.Fatalf("Failed to decode set log level response: %v", err)
+		}
+
+		if setResp["level"] != "debug" {
+			t.Fatalf("Expected new level to be 'debug', got %s", setResp["level"])
+		}
+
+		if setResp["old_level"] != originalLevel {
+			t.Fatalf("Expected old level to be '%s', got %s", originalLevel, setResp["old_level"])
+		}
+
+		// Test: Verify log level was changed
+		resp, err = http.Get("http://localhost:8081/log-level")
+		if err != nil {
+			t.Fatalf("Failed to get updated log level: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&logLevelResp); err != nil {
+			t.Fatalf("Failed to decode updated log level response: %v", err)
+		}
+
+		if logLevelResp["level"] != "debug" {
+			t.Fatalf("Expected updated level to be 'debug', got %s", logLevelResp["level"])
+		}
+
+		// Test: Test invalid log level
+		invalidLogReq := map[string]string{
+			"level": "invalid",
+		}
+		reqJSON, err = json.Marshal(invalidLogReq)
+		if err != nil {
+			t.Fatalf("Failed to marshal invalid log level request: %v", err)
+		}
+
+		resp, err = http.Post("http://localhost:8081/log-level", "application/json", bytes.NewReader(reqJSON))
+		if err != nil {
+			t.Fatalf("Failed to make invalid log level request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("Expected status 400 for invalid log level, got %d", resp.StatusCode)
+		}
+
+		// Test: Restore original log level
+		restoreLogReq := map[string]string{
+			"level": originalLevel,
+		}
+		reqJSON, err = json.Marshal(restoreLogReq)
+		if err != nil {
+			t.Fatalf("Failed to marshal restore log level request: %v", err)
+		}
+
+		resp, err = http.Post("http://localhost:8081/log-level", "application/json", bytes.NewReader(reqJSON))
+		if err != nil {
+			t.Fatalf("Failed to restore log level: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		logger.Info("Log level API tests completed successfully")
+	})
+
+	// Test: FFmpeg Log Level in Stream Configuration
+	t.Run("ffmpeg_log_level_config", func(t *testing.T) {
+		// Stop any existing stream first
+		http.Post("http://localhost:8081/stop", "application/json", nil)
+		time.Sleep(200 * time.Millisecond)
+
+		// Test starting stream with different FFmpeg log levels
+		testLevels := []string{"quiet", "error", "warning", "info", "verbose", "debug"}
+		
+		for _, logLevel := range testLevels {
+			config := streammanager.Config{
+				Destination: "rtmp://localhost:1936/live/test",
+				Encoder:     "libx264",
+				Preset:      "ultrafast",
+				LogLevel:    logLevel, // FFmpeg log level
+			}
+
+			configJSON, err := json.Marshal(config)
+			if err != nil {
+				t.Fatalf("Failed to marshal config for log level %s: %v", logLevel, err)
+			}
+
+			resp, err := http.Post("http://localhost:8081/start", "application/json", bytes.NewReader(configJSON))
+			if err != nil {
+				t.Fatalf("Failed to start streaming with log level %s: %v", logLevel, err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				t.Fatalf("Expected status 200 for log level %s, got %d: %s", logLevel, resp.StatusCode, string(body))
+			}
+
+			// Give streaming time to start
+			time.Sleep(100 * time.Millisecond)
+
+			// Stop streaming
+			stopResp, err := http.Post("http://localhost:8081/stop", "application/json", nil)
+			if err != nil {
+				t.Logf("Failed to stop streaming: %v", err)
+			} else {
+				stopResp.Body.Close()
+			}
+
+			time.Sleep(100 * time.Millisecond)
+			
+			t.Logf("Successfully tested FFmpeg log level: %s", logLevel)
+		}
+
+		logger.Info("FFmpeg log level configuration tests completed successfully")
 	})
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/jbpratt/streammanager/internal/streammanager"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 type Server struct {
@@ -21,13 +22,14 @@ type Server struct {
 	rtmpAddr  string
 	webrtcSrv WebRTCStatusProvider
 	fileDir   string // Directory to serve files from
+	logLevel  *zap.AtomicLevel // Atomic log level for runtime changes
 }
 
 type WebRTCStatusProvider interface {
 	GetStatus() map[string]any
 }
 
-func New(logger *zap.Logger, rtmpAddr string) (*Server, error) {
+func New(logger *zap.Logger, rtmpAddr string, logLevel *zap.AtomicLevel) (*Server, error) {
 	sm, err := streammanager.New(logger)
 	if err != nil {
 		return nil, err
@@ -44,6 +46,7 @@ func New(logger *zap.Logger, rtmpAddr string) (*Server, error) {
 		logger:   logger,
 		rtmpAddr: rtmpAddr,
 		fileDir:  fileDir,
+		logLevel: logLevel,
 	}, nil
 }
 
@@ -115,6 +118,7 @@ func (s *Server) SetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/webrtc/status", s.logMiddleware(s.handleWebRTCStatus))
 	mux.HandleFunc("/files", s.logMiddleware(s.handleListFiles))
 	mux.HandleFunc("/files/", s.logMiddleware(s.handleServeFile))
+	mux.HandleFunc("/log-level", s.logMiddleware(s.handleLogLevel))
 }
 
 func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
@@ -520,4 +524,79 @@ func isSubtitleFile(filename string) bool {
 	}
 
 	return slices.Contains(subtitleExtensions, ext)
+}
+
+// handleLogLevel handles GET and POST requests for application log level
+func (s *Server) handleLogLevel(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.handleGetLogLevel(w, r)
+	case http.MethodPost:
+		s.handleSetLogLevel(w, r)
+	default:
+		s.logger.Warn("Invalid method for /log-level endpoint", zap.String("method", r.Method))
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleGetLogLevel returns the current application log level
+func (s *Server) handleGetLogLevel(w http.ResponseWriter, r *http.Request) {
+	if s.logLevel == nil {
+		http.Error(w, "Log level not available", http.StatusInternalServerError)
+		return
+	}
+
+	currentLevel := s.logLevel.Level()
+	
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{
+		"level": currentLevel.String(),
+	}); err != nil {
+		s.logger.Error("Failed to encode log level response", zap.Error(err))
+	}
+}
+
+// handleSetLogLevel sets the application log level
+func (s *Server) handleSetLogLevel(w http.ResponseWriter, r *http.Request) {
+	if s.logLevel == nil {
+		http.Error(w, "Log level not available", http.StatusInternalServerError)
+		return
+	}
+
+	var req struct {
+		Level string `json:"level"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.logger.Error("Failed to decode log level request", zap.Error(err))
+		http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.Level == "" {
+		http.Error(w, "Missing level parameter", http.StatusBadRequest)
+		return
+	}
+
+	var level zapcore.Level
+	if err := level.UnmarshalText([]byte(strings.ToLower(req.Level))); err != nil {
+		s.logger.Error("Invalid log level", zap.String("level", req.Level), zap.Error(err))
+		http.Error(w, "Invalid log level: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	oldLevel := s.logLevel.Level()
+	s.logLevel.SetLevel(level)
+	
+	s.logger.Info("Application log level changed", 
+		zap.String("old_level", oldLevel.String()),
+		zap.String("new_level", level.String()))
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{
+		"level":     level.String(),
+		"old_level": oldLevel.String(),
+	}); err != nil {
+		s.logger.Error("Failed to encode log level response", zap.Error(err))
+	}
 }

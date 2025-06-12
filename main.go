@@ -20,7 +20,6 @@ import (
 
 // TODO: multistream to a local server to provide a preview
 // TODO: allow setting subtitles in the overlay options
-// TODO: allow starting a file from a particular timestamp
 // TODO: improve the fps in the progress to not estimate total frames instead using ffprobe to calculate
 //       ffprobe -v quiet -select_streams v:0 -show_entries stream=nb_frames,duration,r_frame_rate -of json
 
@@ -39,7 +38,10 @@ func main() {
 		log.Fatalf("Invalid log level: %v", err)
 	}
 
-	logger, err := zap.NewDevelopment(zap.IncreaseLevel(level))
+	// Create atomic level for runtime changes
+	atomicLevel := zap.NewAtomicLevelAt(level)
+	
+	logger, err := zap.NewDevelopment(zap.IncreaseLevel(atomicLevel))
 	if err != nil {
 		panic(err)
 	}
@@ -47,7 +49,7 @@ func main() {
 		_ = logger.Sync() // Safe to ignore error in defer during shutdown
 	}()
 
-	apiServer, err := api.New(logger, *rtmpAddr)
+	apiServer, err := api.New(logger, *rtmpAddr, &atomicLevel)
 	if err != nil {
 		logger.Fatal("Failed to create API server", zap.Error(err))
 	}

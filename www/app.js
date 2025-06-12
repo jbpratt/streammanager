@@ -94,8 +94,14 @@ class StreamManager {
         document.getElementById('whepConnect').addEventListener('click', () => this.connectWHEP());
         document.getElementById('whepDisconnect').addEventListener('click', () => this.disconnectWHEP());
 
+        // Log level event listeners
+        document.getElementById('appLogLevel').addEventListener('change', () => this.setAppLogLevel());
+
         // Auto-refresh queue on page load
         this.getQueue();
+
+        // Load initial application log level
+        this.loadAppLogLevel();
 
         // Set initial overlay options visibility
         this.toggleOverlayOptions();
@@ -232,7 +238,8 @@ class StreamManager {
                     password: password,
                     encoder: encoder,
                     preset: preset,
-                    keyframeInterval: keyframeInterval
+                    keyframeInterval: keyframeInterval,
+                    logLevel: document.getElementById('ffmpegLogLevel').value
                 })
             });
             const text = await response.text();
@@ -1083,6 +1090,47 @@ class StreamManager {
         const ext = filename.toLowerCase().split('.').pop();
         const subtitleExtensions = ['srt', 'vtt', 'ass', 'ssa', 'sub', 'sbv'];
         return subtitleExtensions.includes(ext);
+    }
+
+    async loadAppLogLevel() {
+        try {
+            const response = await fetch('/log-level');
+            if (response.ok) {
+                const data = await response.json();
+                const appLogLevelSelect = document.getElementById('appLogLevel');
+                appLogLevelSelect.value = data.level;
+            } else {
+                console.warn('Failed to load application log level');
+            }
+        } catch (error) {
+            console.error('Error loading application log level:', error);
+        }
+    }
+
+    async setAppLogLevel() {
+        const appLogLevel = document.getElementById('appLogLevel').value;
+        
+        try {
+            const response = await fetch('/log-level', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    level: appLogLevel
+                })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                this.showStatus(`Application log level changed from ${data.old_level} to ${data.level}`, true);
+            } else {
+                const errorText = await response.text();
+                this.showStatus(`Failed to set log level: ${errorText}`, false);
+            }
+        } catch (error) {
+            this.showStatus('Error setting log level: ' + error.message, false);
+        }
     }
 }
 
