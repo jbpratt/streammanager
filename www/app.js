@@ -18,7 +18,40 @@ class StreamManager {
         this.isWhepConnected = false;
         this.webrtcStatusInterval = null;
 
+        // Theme management
+        this.initTheme();
+        
         this.initEventListeners();
+    }
+
+    initTheme() {
+        // Check for saved theme or default to light
+        const savedTheme = localStorage.getItem('theme');
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const theme = savedTheme || (prefersDark ? 'dark' : 'light');
+        
+        this.setTheme(theme);
+    }
+
+    setTheme(theme) {
+        const html = document.documentElement;
+        const themeIcon = document.getElementById('themeIcon');
+        
+        if (theme === 'dark') {
+            html.classList.add('dark');
+            themeIcon.textContent = '☀️';
+        } else {
+            html.classList.remove('dark');
+            themeIcon.textContent = '🌙';
+        }
+        
+        localStorage.setItem('theme', theme);
+    }
+
+    toggleTheme() {
+        const html = document.documentElement;
+        const isDark = html.classList.contains('dark');
+        this.setTheme(isDark ? 'light' : 'dark');
     }
 
     validateTimestamp(timestamp) {
@@ -29,13 +62,21 @@ class StreamManager {
     }
 
     initEventListeners() {
+        // Theme toggle
+        document.getElementById('themeToggle').addEventListener('click', () => this.toggleTheme());
+        
+        // Stream controls
         document.getElementById('toggleBtn').addEventListener('click', () => this.toggle());
         document.getElementById('enqueueLocalBtn').addEventListener('click', () => this.enqueueLocal());
         document.getElementById('enqueueServerBtn').addEventListener('click', () => this.enqueueServer());
         document.getElementById('skipBtn').addEventListener('click', () => this.skip());
+        
+        // Collapsible sections
         document.getElementById('configToggle').addEventListener('click', () => this.toggleConfigSettings());
         document.getElementById('overlayToggle').addEventListener('click', () => this.toggleOverlaySettings());
         document.getElementById('fileModeToggle').addEventListener('click', () => this.toggleFileModeSettings());
+        
+        // File management
         document.getElementById('showFilename').addEventListener('change', () => this.toggleOverlayOptions());
         document.getElementById('localFilesBtn').addEventListener('click', () => this.switchToLocalFiles());
         document.getElementById('serverFilesBtn').addEventListener('click', () => this.switchToServerFiles());
@@ -110,9 +151,9 @@ class StreamManager {
         const options = document.getElementById('overlayOptions');
 
         if (checkbox.checked) {
-            options.style.display = 'grid';
+            options.classList.remove('hidden');
         } else {
-            options.style.display = 'none';
+            options.classList.add('hidden');
         }
     }
 
@@ -131,16 +172,16 @@ class StreamManager {
 
     switchToLocalFiles() {
         this.fileMode = 'local';
-        document.getElementById('localFilesBtn').className = 'flex-1 px-3 py-2 text-xs bg-blue-100 text-blue-700 rounded border';
-        document.getElementById('serverFilesBtn').className = 'flex-1 px-3 py-2 text-xs bg-gray-100 text-gray-700 rounded border';
+        document.getElementById('localFilesBtn').className = 'flex-1 px-4 py-2 text-sm font-medium text-primary-700 bg-white dark:bg-gray-600 dark:text-primary-300 rounded-md shadow-sm';
+        document.getElementById('serverFilesBtn').className = 'flex-1 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white rounded-md';
         document.getElementById('localFileSection').classList.remove('hidden');
         document.getElementById('serverFileSection').classList.add('hidden');
     }
 
     switchToServerFiles() {
         this.fileMode = 'server';
-        document.getElementById('localFilesBtn').className = 'flex-1 px-3 py-2 text-xs bg-gray-100 text-gray-700 rounded border';
-        document.getElementById('serverFilesBtn').className = 'flex-1 px-3 py-2 text-xs bg-blue-100 text-blue-700 rounded border';
+        document.getElementById('localFilesBtn').className = 'flex-1 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white rounded-md';
+        document.getElementById('serverFilesBtn').className = 'flex-1 px-4 py-2 text-sm font-medium text-primary-700 bg-white dark:bg-gray-600 dark:text-primary-300 rounded-md shadow-sm';
         document.getElementById('localFileSection').classList.add('hidden');
         document.getElementById('serverFileSection').classList.remove('hidden');
         this.loadServerFiles();
@@ -392,7 +433,7 @@ class StreamManager {
     showStatus(message, isSuccess) {
         const statusDiv = document.getElementById('status');
         statusDiv.textContent = message;
-        statusDiv.className = `mt-4 p-3 rounded text-sm ${isSuccess ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`;
+        statusDiv.className = `mb-6 p-4 rounded-lg ${isSuccess ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200 border border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200 border border-red-200 dark:border-red-800'}`;
         statusDiv.classList.remove('hidden');
 
         setTimeout(() => {
@@ -406,24 +447,47 @@ class StreamManager {
         const status = data.status || {};
 
         let statusText = 'Stopped';
+        let statusColor = 'text-gray-600 dark:text-gray-400';
         if (status.running) {
             statusText = status.activelyStreaming ? 'Streaming' : 'Ready';
-        }
-        let html = `<strong>Status:</strong> ${statusText}<br>`;
-        if (status.playing) {
-            html += `<strong>Currently Playing:</strong> ${status.playing.file}<br>`;
+            statusColor = status.activelyStreaming ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400';
         }
 
-        html += `<br><strong>Queue (${queueItems.length} items):</strong><br>`;
+        let html = `
+            <div class="flex items-center justify-between mb-4 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                <div>
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Status:</span>
+                    <span class="ml-2 font-semibold ${statusColor}">${statusText}</span>
+                </div>
+                <span class="text-sm text-gray-500 dark:text-gray-400">${queueItems.length} items</span>
+            </div>
+        `;
+
+        if (status.playing) {
+            html += `
+                <div class="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                    <div class="text-sm font-medium text-blue-800 dark:text-blue-200">Currently Playing:</div>
+                    <div class="text-sm text-blue-600 dark:text-blue-300 mt-1">${status.playing.file}</div>
+                </div>
+            `;
+        }
 
         if (queueItems.length === 0) {
-            html += 'No items in queue';
+            html += `
+                <div class="text-center py-8 text-gray-500 dark:text-gray-400">
+                    <div class="text-2xl mb-2">📂</div>
+                    <div>No items in queue</div>
+                    <div class="text-sm mt-1">Add files to start streaming</div>
+                </div>
+            `;
         } else {
             queueItems.forEach((item, index) => {
                 html += `
-                    <div class="flex justify-between items-center mb-1 p-2 bg-white rounded border">
-                        <span class="text-sm">${index + 1}. ${item.file}</span>
-                        <button class="remove-btn bg-red-500 text-white px-2 py-1 rounded text-xs hover:bg-red-600" data-id="${item.id}">
+                    <div class="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg mb-2">
+                        <div class="flex-1">
+                            <div class="text-sm font-medium text-gray-900 dark:text-white">${index + 1}. ${item.file}</div>
+                        </div>
+                        <button class="remove-btn bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-lg text-sm font-medium transition-colors" data-id="${item.id}">
                             Remove
                         </button>
                     </div>
@@ -448,9 +512,9 @@ class StreamManager {
         if (error) {
             const errorTime = new Date(error.time * 1000).toLocaleTimeString();
             errorDiv.innerHTML = `
-                <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-                    <strong>⚠️ FFmpeg Error (${errorTime}):</strong><br>
-                    ${error.message}
+                <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-200 px-4 py-3 rounded-lg">
+                    <div class="font-semibold">⚠️ FFmpeg Error (${errorTime})</div>
+                    <div class="mt-1 text-sm">${error.message}</div>
                 </div>
             `;
             errorDiv.classList.remove('hidden');
@@ -595,16 +659,18 @@ class StreamManager {
         sortedFiles.forEach(file => {
             const icon = file.isDir ? '📁' : '🎬';
             const sizeText = file.isDir ? '' : ` (${this.formatFileSize(file.size)})`;
-            const pathClass = file.isDir ? 'text-blue-600' : 'text-gray-700';
+            const pathClass = file.isDir ? 'text-primary-600 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300';
 
             html += `
-                <div class="flex items-center justify-between p-2 hover:bg-gray-100 cursor-pointer border-b file-entry" data-path="${file.path}" data-type="${file.isDir ? 'dir' : 'file'}">
+                <div class="flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-600 cursor-pointer border-b border-gray-200 dark:border-gray-600 file-entry" data-path="${file.path}" data-type="${file.isDir ? 'dir' : 'file'}">
                     <div class="flex items-center flex-1">
-                        <span class="mr-2">${icon}</span>
-                        <span class="${pathClass}">${file.name}</span>
-                        <span class="text-xs text-gray-500 ml-2">${sizeText}</span>
+                        <span class="mr-3 text-lg">${icon}</span>
+                        <div class="flex-1">
+                            <span class="${pathClass} font-medium">${file.name}</span>
+                            <span class="text-xs text-gray-500 dark:text-gray-400 ml-2">${sizeText}</span>
+                        </div>
                     </div>
-                    ${!file.isDir ? '<div class="text-xs text-gray-400">' + new Date(file.modTime).toLocaleDateString() + '</div>' : ''}
+                    ${!file.isDir ? '<div class="text-xs text-gray-400 dark:text-gray-500">' + new Date(file.modTime).toLocaleDateString() + '</div>' : ''}
                 </div>
             `;
         });
@@ -630,13 +696,13 @@ class StreamManager {
     selectServerFile(filePath) {
         // Clear previous selection
         document.querySelectorAll('.file-entry').forEach(entry => {
-            entry.classList.remove('bg-blue-100');
+            entry.classList.remove('bg-primary-50', 'dark:bg-primary-900/20');
         });
 
         // Highlight selected file
         const selectedEntry = document.querySelector(`[data-path="${filePath}"][data-type="file"]`);
         if (selectedEntry) {
-            selectedEntry.classList.add('bg-blue-100');
+            selectedEntry.classList.add('bg-primary-50', 'dark:bg-primary-900/20');
         }
 
         this.selectedFile = filePath;
@@ -647,10 +713,10 @@ class StreamManager {
         const enqueueBtn = document.getElementById('enqueueServerBtn');
         if (this.selectedFile) {
             enqueueBtn.disabled = false;
-            enqueueBtn.textContent = `Enqueue: ${this.selectedFile.split('/').pop()}`;
+            enqueueBtn.textContent = `Add: ${this.selectedFile.split('/').pop()}`;
         } else {
             enqueueBtn.disabled = true;
-            enqueueBtn.textContent = 'Enqueue Selected File';
+            enqueueBtn.textContent = 'Add Selected File to Queue';
         }
     }
 
@@ -938,16 +1004,18 @@ class StreamManager {
         sortedFiles.forEach(file => {
             const icon = file.isDir ? '📁' : '📄';
             const sizeText = file.isDir ? '' : ` (${this.formatFileSize(file.size)})`;
-            const pathClass = file.isDir ? 'text-blue-600' : 'text-gray-700';
+            const pathClass = file.isDir ? 'text-primary-600 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300';
 
             html += `
-                <div class="flex items-center justify-between p-2 hover:bg-gray-100 cursor-pointer border-b subtitle-entry" data-path="${file.path}" data-type="${file.isDir ? 'dir' : 'file'}">
+                <div class="flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-600 cursor-pointer border-b border-gray-200 dark:border-gray-600 subtitle-entry" data-path="${file.path}" data-type="${file.isDir ? 'dir' : 'file'}">
                     <div class="flex items-center flex-1">
-                        <span class="mr-2">${icon}</span>
-                        <span class="${pathClass}">${file.name}</span>
-                        <span class="text-xs text-gray-500 ml-2">${sizeText}</span>
+                        <span class="mr-3 text-lg">${icon}</span>
+                        <div class="flex-1">
+                            <span class="${pathClass} font-medium">${file.name}</span>
+                            <span class="text-xs text-gray-500 dark:text-gray-400 ml-2">${sizeText}</span>
+                        </div>
                     </div>
-                    ${!file.isDir ? '<div class="text-xs text-gray-400">' + new Date(file.modTime).toLocaleDateString() + '</div>' : ''}
+                    ${!file.isDir ? '<div class="text-xs text-gray-400 dark:text-gray-500">' + new Date(file.modTime).toLocaleDateString() + '</div>' : ''}
                 </div>
             `;
         });
@@ -973,13 +1041,13 @@ class StreamManager {
     selectSubtitleFileFromBrowser(filePath) {
         // Clear previous selection
         document.querySelectorAll('.subtitle-entry').forEach(entry => {
-            entry.classList.remove('bg-blue-100');
+            entry.classList.remove('bg-primary-50', 'dark:bg-primary-900/20');
         });
 
         // Highlight selected file
         const selectedEntry = document.querySelector(`[data-path="${filePath}"][data-type="file"]`);
         if (selectedEntry) {
-            selectedEntry.classList.add('bg-blue-100');
+            selectedEntry.classList.add('bg-primary-50', 'dark:bg-primary-900/20');
         }
 
         this.selectedSubtitleFile = filePath;

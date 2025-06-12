@@ -6,345 +6,458 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Stream Manager</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            primary: {
+              50: '#f0f9ff',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8'
+            }
+          }
+        }
+      }
+    }
+  </script>
 </head>
 
-<body class="bg-gray-100 p-8">
-  <div class="max-w-md mx-auto bg-white rounded-lg shadow-md p-6">
-    <h1 class="text-2xl font-bold mb-6 text-center">Stream Manager</h1>
-    <div class="space-y-4">
-      <button id="toggleBtn" class="w-full bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
-        data-state="stopped">
-        Start Stream
-      </button>
-      <button id="skipBtn" class="w-full bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600">
-        Skip Current
-      </button>
-      <div class="border rounded p-4 bg-gray-50">
-        <button id="configToggle" class="flex items-center justify-between w-full text-left mb-2 focus:outline-none">
-          <span class="text-sm font-medium">🔧 Stream Configuration</span>
-          <span id="configArrow" class="transform transition-transform">▼</span>
-        </button>
-        <div id="configContent" class="space-y-3">
-          <div>
-            <label class="block text-xs text-gray-600 mb-1">RTMP Destination:</label>
-            <input type="text" id="destInput" placeholder="rtmp://example.com/live/stream"
-              class="w-full px-3 py-2 border border-gray-300 rounded text-sm">
+<body class="bg-gray-50 dark:bg-gray-900 min-h-screen transition-colors">
+  <!-- Header -->
+  <header class="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex justify-between items-center h-16">
+        <div class="flex items-center space-x-3">
+          <div class="w-8 h-8 bg-primary-500 rounded-lg flex items-center justify-center">
+            <span class="text-white font-bold">SM</span>
           </div>
-          <div class="grid grid-cols-2 gap-2">
-            <div>
-              <label class="block text-xs text-gray-600 mb-1">Username (optional):</label>
-              <input type="text" id="username" placeholder="username"
-                class="w-full px-2 py-1 border border-gray-300 rounded text-sm">
-            </div>
-            <div>
-              <label class="block text-xs text-gray-600 mb-1">Password (optional):</label>
-              <input type="password" id="password" placeholder="password"
-                class="w-full px-2 py-1 border border-gray-300 rounded text-sm">
-            </div>
-          </div>
-          <div>
-            <label class="block text-xs text-gray-600 mb-1">Max Bitrate:</label>
-            <select id="maxBitrate" class="w-full px-2 py-1 border border-gray-300 rounded text-sm">
-              <option value="">No Limit</option>
-              <option value="1000k">1 Mbps</option>
-              <option value="2000k">2 Mbps</option>
-              <option value="3000k">3 Mbps</option>
-              <option value="5000k">5 Mbps</option>
-              <option value="8000k">8 Mbps</option>
-              <option value="10000k">10 Mbps</option>
-            </select>
-          </div>
-          <div class="grid grid-cols-2 gap-2">
-            <div>
-              <label class="block text-xs text-gray-600 mb-1">Encoder:</label>
-              <select id="encoder" class="w-full px-2 py-1 border border-gray-300 rounded text-sm">
-                <option value="libx264" selected>H.264 (libx264)</option>
-                <option value="libx265">H.265 (libx265)</option>
-              </select>
-            </div>
-            <div>
-              <label class="block text-xs text-gray-600 mb-1">Preset:</label>
-              <select id="preset" class="w-full px-2 py-1 border border-gray-300 rounded text-sm">
-                <option value="ultrafast" selected>Ultra Fast</option>
-                <option value="superfast">Super Fast</option>
-                <option value="veryfast">Very Fast</option>
-                <option value="faster">Faster</option>
-                <option value="fast">Fast</option>
-                <option value="medium">Medium</option>
-                <option value="slow">Slow</option>
-                <option value="slower">Slower</option>
-                <option value="veryslow">Very Slow</option>
-              </select>
-            </div>
-          </div>
-          <div>
-            <label class="block text-xs text-gray-600 mb-1">Keyframe Interval (seconds):</label>
-            <select id="keyframeInterval" class="w-full px-2 py-1 border border-gray-300 rounded text-sm">
-              <option value="">Auto (copy stream)</option>
-              <option value="30">1 second</option>
-              <option value="60" selected>2 seconds</option>
-              <option value="90">3 seconds</option>
-              <option value="120">4 seconds</option>
-              <option value="150">5 seconds</option>
-              <option value="300">10 seconds</option>
-            </select>
-          </div>
+          <h1 class="text-xl font-semibold text-gray-900 dark:text-white">Stream Manager</h1>
         </div>
-      </div>
-      <div class="border rounded p-4 bg-gray-50">
-        <button id="overlayToggle" class="flex items-center justify-between w-full text-left mb-2 focus:outline-none">
-          <span class="text-sm font-medium">🎨 Visual Overlays</span>
-          <span id="overlayArrow" class="transform transition-transform">▼</span>
+        <button id="themeToggle"
+          class="p-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+          <span id="themeIcon" class="w-5 h-5 block">🌙</span>
         </button>
-        <div id="overlayContent" class="space-y-3">
-          <div class="flex items-center">
-            <input type="checkbox" id="showFilename" class="mr-2">
-            <label for="showFilename" class="text-sm">Show filename</label>
-          </div>
-          <div id="overlayOptions" class="grid grid-cols-2 gap-2" style="display: none;">
-            <div>
-              <label class="block text-xs text-gray-600 mb-1">Position:</label>
-              <select id="overlayPosition" class="w-full px-2 py-1 border border-gray-300 rounded text-sm">
-                <option value="top-left">Top Left</option>
-                <option value="top-right">Top Right</option>
-                <option value="bottom-left">Bottom Left</option>
-                <option value="bottom-right" selected>Bottom Right</option>
-              </select>
-            </div>
-            <div>
-              <label class="block text-xs text-gray-600 mb-1">Font Size:</label>
-              <select id="fontSize" class="w-full px-2 py-1 border border-gray-300 rounded text-sm">
-                <option value="16">Small</option>
-                <option value="24" selected>Medium</option>
-                <option value="32">Large</option>
-              </select>
-            </div>
-          </div>
-
-        </div>
       </div>
+    </div>
+  </header>
 
-      <div class="border rounded p-4 bg-gray-50">
-        <button id="fileModeToggle" class="flex items-center justify-between w-full text-left mb-2 focus:outline-none">
-          <span class="text-sm font-medium">📁 Add files to the queue</span>
-          <span id="fileModeArrow" class="transform transition-transform">▼</span>
-        </button>
-        <div id="fileModeContent" class="space-y-3">
-          <div class="flex space-x-2 mb-3">
-            <button id="localFilesBtn" class="flex-1 px-3 py-2 text-xs bg-blue-100 text-blue-700 rounded border">
-              📱 Local Files
+  <!-- Main Content -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+    <!-- Status Messages -->
+    <div id="status" class="mb-6 p-4 rounded-lg hidden"></div>
+    <div id="errorNotification" class="mb-6 hidden"></div>
+
+    <!-- Main Grid Layout -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+      <!-- Left Column: Controls & Configuration -->
+      <div class="lg:col-span-1 space-y-6">
+
+        <!-- Stream Controls Card -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+          <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Stream Controls</h2>
+          <div class="space-y-3">
+            <button id="toggleBtn"
+              class="w-full bg-green-500 hover:bg-green-600 text-white px-4 py-3 rounded-lg font-medium transition-colors"
+              data-state="stopped">
+              Start Stream
             </button>
-            <button id="serverFilesBtn" class="flex-1 px-3 py-2 text-xs bg-gray-100 text-gray-700 rounded border">
-              🖥️ Server Files
+            <button id="skipBtn"
+              class="w-full bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-3 rounded-lg font-medium transition-colors">
+              Skip Current
             </button>
           </div>
+        </div>
 
-          <!-- Local file upload -->
-          <div id="localFileSection" class="space-y-3">
-            <input type="file" id="fileInput"
-              class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
-            
-            <!-- Hidden file input for local subtitle files -->
-            <input type="file" id="subtitleFileInput" accept=".srt,.vtt,.ass,.ssa,.sub,.sbv" style="display: none;">
-
-            <!-- File-specific settings -->
-            <div class="bg-gray-50 p-3 rounded border">
-              <div class="text-xs font-medium text-gray-700 mb-2">⚙️ Settings for this file</div>
+        <!-- Stream Configuration Card -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+          <button id="configToggle"
+            class="flex items-center justify-between w-full p-6 text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-t-xl transition-colors">
+            <div class="flex items-center space-x-2">
+              <span class="text-primary-500">⚙️</span>
+              <span class="font-medium text-gray-900 dark:text-white">Stream Configuration</span>
+            </div>
+            <span id="configArrow" class="transform transition-transform text-gray-500">▼</span>
+          </button>
+          <div id="configContent" class="px-6 pt-4 pb-6 space-y-4 border-t border-gray-100 dark:border-gray-700">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">RTMP Destination</label>
+              <input type="text" id="destInput" placeholder="rtmp://example.com/live/stream"
+                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+            </div>
+            <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block text-xs text-gray-600 mb-1">Start Timestamp (optional):</label>
-                <input type="text" id="startTimestamp" placeholder="e.g. 0:01:30 or 90"
-                  class="w-full px-2 py-1 border border-gray-300 rounded text-xs">
-                <div class="text-xs text-gray-500 mt-1">Start playback from a specific time. Format: HH:MM:SS or seconds
-                </div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Username</label>
+                <input type="text" id="username" placeholder="optional"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-primary-500 focus:border-transparent">
               </div>
-              <div class="mt-2">
-                <label class="block text-xs text-gray-600 mb-1">Subtitle File (optional):</label>
-                <div class="flex space-x-2">
-                  <input type="text" id="subtitleFile" placeholder="e.g. movie.srt or /path/to/subtitle.srt"
-                    class="flex-1 px-2 py-1 border border-gray-300 rounded text-xs">
-                  <button id="browseSubtitleBtn" class="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
-                    Browse
-                  </button>
-                </div>
-                <div class="text-xs text-gray-500 mt-1">Path to subtitle file. Supports SRT, VTT, ASS formats
-                </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Password</label>
+                <input type="password" id="password" placeholder="optional"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-primary-500 focus:border-transparent">
               </div>
             </div>
-
-            <button id="enqueueLocalBtn" class="w-full bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
-              Enqueue Local File
-            </button>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Max Bitrate</label>
+                <select id="maxBitrate"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                  <option value="">No Limit</option>
+                  <option value="1000k">1 Mbps</option>
+                  <option value="2000k">2 Mbps</option>
+                  <option value="3000k">3 Mbps</option>
+                  <option value="5000k">5 Mbps</option>
+                  <option value="8000k">8 Mbps</option>
+                  <option value="10000k">10 Mbps</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Encoder</label>
+                <select id="encoder"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                  <option value="libx264" selected>H.264</option>
+                  <option value="libx265">H.265</option>
+                </select>
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Preset</label>
+                <select id="preset"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                  <option value="ultrafast" selected>Ultra Fast</option>
+                  <option value="superfast">Super Fast</option>
+                  <option value="veryfast">Very Fast</option>
+                  <option value="faster">Faster</option>
+                  <option value="fast">Fast</option>
+                  <option value="medium">Medium</option>
+                  <option value="slow">Slow</option>
+                  <option value="slower">Slower</option>
+                  <option value="veryslow">Very Slow</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Keyframe Interval</label>
+                <select id="keyframeInterval"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                  <option value="">Auto</option>
+                  <option value="30">1 second</option>
+                  <option value="60" selected>2 seconds</option>
+                  <option value="90">3 seconds</option>
+                  <option value="120">4 seconds</option>
+                  <option value="150">5 seconds</option>
+                  <option value="300">10 seconds</option>
+                </select>
+              </div>
+            </div>
           </div>
+        </div>
 
-          <!-- Server file browser -->
-          <div id="serverFileSection" class="space-y-3 hidden">
-            <div class="flex items-center space-x-2 mb-2">
-              <span id="currentPath" class="text-xs text-gray-600 flex-1">📂 /</span>
-              <button id="refreshBtn" class="px-2 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
-                🔄
+        <!-- Visual Overlays Card -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+          <button id="overlayToggle"
+            class="flex items-center justify-between w-full p-6 text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-t-xl transition-colors">
+            <div class="flex items-center space-x-2">
+              <span class="text-primary-500">🎨</span>
+              <span class="font-medium text-gray-900 dark:text-white">Visual Overlays</span>
+            </div>
+            <span id="overlayArrow" class="transform transition-transform text-gray-500">▼</span>
+          </button>
+          <div id="overlayContent" class="px-6 pt-4 pb-6 space-y-4 border-t border-gray-100 dark:border-gray-700">
+            <div class="flex items-center">
+              <input type="checkbox" id="showFilename"
+                class="w-4 h-4 text-primary-600 bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 rounded focus:ring-primary-500">
+              <label for="showFilename" class="ml-3 text-sm font-medium text-gray-700 dark:text-gray-300">Show filename
+                overlay</label>
+            </div>
+            <div id="overlayOptions" class="grid grid-cols-2 gap-3 hidden">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Position</label>
+                <select id="overlayPosition"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                  <option value="top-left">Top Left</option>
+                  <option value="top-right">Top Right</option>
+                  <option value="bottom-left">Bottom Left</option>
+                  <option value="bottom-right" selected>Bottom Right</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Font Size</label>
+                <select id="fontSize"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                  <option value="16">Small</option>
+                  <option value="24" selected>Medium</option>
+                  <option value="32">Large</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Middle Column: File Management & Queue -->
+      <div class="lg:col-span-1 space-y-6">
+
+        <!-- File Management Card -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+          <button id="fileModeToggle"
+            class="flex items-center justify-between w-full p-6 text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-t-xl transition-colors">
+            <div class="flex items-center space-x-2">
+              <span class="text-primary-500">📁</span>
+              <span class="font-medium text-gray-900 dark:text-white">Add Files to Queue</span>
+            </div>
+            <span id="fileModeArrow" class="transform transition-transform text-gray-500">▼</span>
+          </button>
+          <div id="fileModeContent" class="px-6 pt-4 pb-6 space-y-4 border-t border-gray-100 dark:border-gray-700">
+
+            <!-- File Mode Toggle -->
+            <div class="flex space-x-1 bg-gray-100 dark:bg-gray-700 p-1 rounded-lg">
+              <button id="localFilesBtn"
+                class="flex-1 px-4 py-2 text-sm font-medium text-primary-700 bg-white dark:bg-gray-600 dark:text-primary-300 rounded-md shadow-sm">
+                📱 Local Files
+              </button>
+              <button id="serverFilesBtn"
+                class="flex-1 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white rounded-md">
+                🖥️ Server Files
               </button>
             </div>
-            <div id="fileBrowser" class="max-h-48 overflow-y-auto border rounded bg-white p-2 text-sm">
-              <div class="text-center text-gray-500 py-4">Loading...</div>
+
+            <!-- Local File Section -->
+            <div id="localFileSection" class="space-y-4">
+              <input type="file" id="fileInput"
+                class="block w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100 dark:file:bg-gray-700 dark:file:text-gray-300">
+
+              <!-- Hidden subtitle file input -->
+              <input type="file" id="subtitleFileInput" accept=".srt,.vtt,.ass,.ssa,.sub,.sbv" style="display: none;">
+
+              <!-- File Settings -->
+              <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg space-y-4">
+                <h4 class="text-sm font-medium text-gray-900 dark:text-white">File Settings</h4>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Start Timestamp</label>
+                  <input type="text" id="startTimestamp" placeholder="e.g. 0:01:30 or 90"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Format: HH:MM:SS or seconds</p>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Subtitle File</label>
+                  <div class="flex space-x-2">
+                    <input type="text" id="subtitleFile" placeholder="e.g. movie.srt"
+                      class="flex-1 min-w-0 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                    <button id="browseSubtitleBtn"
+                      class="flex-shrink-0 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 rounded-lg transition-colors">
+                      Browse
+                    </button>
+                  </div>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Supports SRT, VTT, ASS formats</p>
+                </div>
+              </div>
+
+              <button id="enqueueLocalBtn"
+                class="w-full bg-primary-500 hover:bg-primary-600 text-white px-4 py-3 rounded-lg font-medium transition-colors">
+                Add Local File to Queue
+              </button>
             </div>
 
-            <!-- File-specific settings -->
-            <div class="bg-gray-50 p-3 rounded border">
-              <div class="text-xs font-medium text-gray-700 mb-2">⚙️ Settings for selected file</div>
+            <!-- Server File Section -->
+            <div id="serverFileSection" class="space-y-4 hidden">
+              <div class="flex items-center justify-between">
+                <span id="currentPath" class="text-sm text-gray-600 dark:text-gray-400">📂 /</span>
+                <button id="refreshBtn"
+                  class="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors">
+                  🔄 Refresh
+                </button>
+              </div>
+
+              <div id="fileBrowser"
+                class="max-h-64 overflow-y-auto border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700">
+                <div class="text-center text-gray-500 dark:text-gray-400 py-8">Loading...</div>
+              </div>
+
+              <!-- Server File Settings -->
+              <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg space-y-4">
+                <h4 class="text-sm font-medium text-gray-900 dark:text-white">Selected File Settings</h4>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Start Timestamp</label>
+                  <input type="text" id="startTimestampServer" placeholder="e.g. 0:01:30 or 90"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Format: HH:MM:SS or seconds</p>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Subtitle File</label>
+                  <div class="flex space-x-2">
+                    <input type="text" id="subtitleFileServer" placeholder="e.g. movie.srt"
+                      class="flex-1 min-w-0 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                    <button id="browseSubtitleServerBtn"
+                      class="flex-shrink-0 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 rounded-lg transition-colors">
+                      Browse
+                    </button>
+                  </div>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Supports SRT, VTT, ASS formats</p>
+                </div>
+              </div>
+
+              <button id="enqueueServerBtn"
+                class="w-full bg-green-500 hover:bg-green-600 text-white px-4 py-3 rounded-lg font-medium transition-colors disabled:bg-gray-300 dark:disabled:bg-gray-600 disabled:cursor-not-allowed"
+                disabled>
+                Add Selected File to Queue
+              </button>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Stream Queue Card -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+          <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Stream Queue</h2>
+          <div id="queue" class="space-y-3">
+            <div class="text-center text-gray-500 dark:text-gray-400 py-4">Loading...</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Right Column: Live Preview & Progress -->
+      <div class="lg:col-span-1 space-y-6">
+
+        <!-- Live Preview Card -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Live Preview</h2>
+            <div id="webrtcStatus" class="text-sm text-gray-500 dark:text-gray-400">Not connected</div>
+          </div>
+
+          <div class="space-y-4">
+            <div class="flex space-x-3">
+              <button id="whepConnect"
+                class="flex-1 bg-primary-500 hover:bg-primary-600 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+                Connect
+              </button>
+              <button id="whepDisconnect"
+                class="flex-1 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg font-medium transition-colors hidden">
+                Disconnect
+              </button>
+            </div>
+
+            <div class="relative bg-black rounded-lg overflow-hidden" style="aspect-ratio: 16/9;">
+              <video id="whepVideo" autoplay muted controls class="w-full h-full object-contain">
+                <source type="video/mp4">
+                Your browser does not support the video tag.
+              </video>
+              <div id="noStreamMessage" class="absolute inset-0 flex items-center justify-center text-white">
+                <div class="text-center">
+                  <div class="text-4xl mb-2">📺</div>
+                  <div class="text-lg font-medium">No stream available</div>
+                  <div class="text-sm text-gray-300 mt-1">Start streaming and connect to see live preview</div>
+                </div>
+              </div>
+            </div>
+
+            <div id="webrtcStats" class="grid grid-cols-2 gap-4 text-sm text-gray-600 dark:text-gray-400 hidden">
               <div>
-                <label class="block text-xs text-gray-600 mb-1">Start Timestamp (optional):</label>
-                <input type="text" id="startTimestampServer" placeholder="e.g. 0:01:30 or 90"
-                  class="w-full px-2 py-1 border border-gray-300 rounded text-xs">
-                <div class="text-xs text-gray-500 mt-1">Start playback from a specific time. Format: HH:MM:SS or seconds
-                </div>
+                <span class="font-medium">Connection:</span>
+                <span id="connectionState">-</span>
               </div>
-              <div class="mt-2">
-                <label class="block text-xs text-gray-600 mb-1">Subtitle File (optional):</label>
-                <div class="flex space-x-2">
-                  <input type="text" id="subtitleFileServer" placeholder="e.g. movie.srt or /path/to/subtitle.srt"
-                    class="flex-1 px-2 py-1 border border-gray-300 rounded text-xs">
-                  <button id="browseSubtitleServerBtn" class="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
-                    Browse
-                  </button>
-                </div>
-                <div class="text-xs text-gray-500 mt-1">Path to subtitle file. Supports SRT, VTT, ASS formats
-                </div>
+              <div>
+                <span class="font-medium">ICE State:</span>
+                <span id="iceState">-</span>
               </div>
             </div>
+          </div>
+        </div>
 
-            <button id="enqueueServerBtn"
-              class="w-full bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
-              disabled>
-              Enqueue Selected File
-            </button>
+        <!-- Stream Progress Card -->
+        <div id="progress"
+          class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 hidden">
+          <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Stream Progress</h2>
+
+          <!-- Progress Bar -->
+          <div class="mb-6">
+            <div class="bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
+              <div id="progressBar" class="bg-primary-500 h-3 rounded-full transition-all duration-300"
+                style="width: 0%"></div>
+            </div>
+            <div class="text-center mt-2">
+              <span id="progressPercentage" class="text-sm font-medium text-gray-600 dark:text-gray-400">0%</span>
+              <span class="text-sm text-gray-500 dark:text-gray-500"> complete</span>
+            </div>
+          </div>
+
+          <!-- Progress Stats -->
+          <div class="grid grid-cols-2 gap-4 text-sm">
+            <div class="space-y-2">
+              <div class="flex justify-between">
+                <span class="text-gray-600 dark:text-gray-400">Frame:</span>
+                <span id="progressFrame" class="font-medium text-gray-900 dark:text-white">-</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-gray-600 dark:text-gray-400">FPS:</span>
+                <span id="progressFps" class="font-medium text-gray-900 dark:text-white">-</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-gray-600 dark:text-gray-400">Bitrate:</span>
+                <span id="progressBitrate" class="font-medium text-gray-900 dark:text-white">-</span>
+              </div>
+            </div>
+            <div class="space-y-2">
+              <div class="flex justify-between">
+                <span class="text-gray-600 dark:text-gray-400">Time:</span>
+                <span id="progressTime" class="font-medium text-gray-900 dark:text-white">-</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-gray-600 dark:text-gray-400">Speed:</span>
+                <span id="progressSpeed" class="font-medium text-gray-900 dark:text-white">-</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-gray-600 dark:text-gray-400">Updated:</span>
+                <span id="progressTimestamp" class="font-medium text-gray-900 dark:text-white text-xs">-</span>
+              </div>
+            </div>
           </div>
         </div>
+
       </div>
+
     </div>
-    <div id="status" class="mt-4 p-3 rounded bg-gray-100 text-sm hidden"></div>
-    <div id="errorNotification" class="mt-4 hidden"></div>
-    <div class="mt-6">
-      <h2 class="text-lg font-semibold mb-3">📺 Live Preview (WebRTC)</h2>
-      <div class="border rounded p-4 bg-gray-50">
-        <div class="flex justify-between items-center mb-3">
-          <div class="flex items-center space-x-2">
-            <button id="whepConnect" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
-              Connect to Stream
-            </button>
-            <button id="whepDisconnect" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 hidden">
-              Disconnect
-            </button>
-          </div>
-          <div id="webrtcStatus" class="text-sm text-gray-600">
-            Not connected
-          </div>
-        </div>
-        <div class="relative bg-black rounded overflow-hidden" style="aspect-ratio: 16/9;">
-          <video id="whepVideo" autoplay muted controls class="w-full h-full object-contain">
-            <source type="video/mp4">
-            Your browser does not support the video tag.
-          </video>
-          <div id="noStreamMessage" class="absolute inset-0 flex items-center justify-center text-white text-lg">
-            <div class="text-center">
-              <div class="text-4xl mb-2">📺</div>
-              <div>No stream available</div>
-              <div class="text-sm text-gray-300 mt-1">Start streaming and connect to see live preview</div>
-            </div>
-          </div>
-        </div>
-        <div id="webrtcStats" class="mt-3 text-xs text-gray-500 hidden">
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <span class="font-medium">Connection:</span>
-              <span id="connectionState">-</span>
-            </div>
-            <div>
-              <span class="font-medium">ICE State:</span>
-              <span id="iceState">-</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="mt-6">
-      <h2 class="text-lg font-semibold mb-3">📊 Stream Progress</h2>
-      <div id="progress" class="p-3 rounded bg-green-50 text-sm border mb-4 hidden">
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <div class="mb-2">
-              <span class="font-medium">Frame:</span>
-              <span id="progressFrame" class="text-blue-600">-</span>
-            </div>
-            <div class="mb-2">
-              <span class="font-medium">FPS:</span>
-              <span id="progressFps" class="text-blue-600">-</span>
-            </div>
-            <div class="mb-2">
-              <span class="font-medium">Bitrate:</span>
-              <span id="progressBitrate" class="text-blue-600">-</span>
-            </div>
-          </div>
-          <div>
-            <div class="mb-2">
-              <span class="font-medium">Time:</span>
-              <span id="progressTime" class="text-blue-600">-</span>
-            </div>
-            <div class="mb-2">
-              <span class="font-medium">Speed:</span>
-              <span id="progressSpeed" class="text-blue-600">-</span>
-            </div>
-            <div class="mb-2">
-              <span class="font-medium">Updated:</span>
-              <span id="progressTimestamp" class="text-gray-500 text-xs">-</span>
-            </div>
-          </div>
-        </div>
-        <div class="mt-3">
-          <div class="bg-gray-200 rounded-full h-2">
-            <div id="progressBar" class="bg-blue-500 h-2 rounded-full transition-all duration-300" style="width: 0%">
-            </div>
-          </div>
-          <div class="text-xs text-gray-500 mt-1 text-center">
-            <span id="progressPercentage">0%</span> complete
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="mt-6">
-      <h2 class="text-lg font-semibold mb-3">📋 Stream Queue</h2>
-      <div id="queue" class="p-3 rounded bg-blue-50 text-sm border">
-        Loading...
-      </div>
-    </div>
-  </div>
+  </main>
 
   <!-- Subtitle File Browser Modal -->
-  <div id="subtitleBrowserModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden flex items-center justify-center">
-    <div class="bg-white rounded-lg shadow-lg w-96 max-h-96 flex flex-col">
-      <div class="flex items-center justify-between p-4 border-b">
-        <h3 class="text-lg font-semibold">Browse Subtitle Files</h3>
-        <button id="closeSubtitleBrowser" class="text-gray-500 hover:text-gray-700">✕</button>
+  <div id="subtitleBrowserModal"
+    class="fixed inset-0 bg-gray-600 bg-opacity-50 dark:bg-gray-900 dark:bg-opacity-75 hidden flex items-center justify-center z-50">
+    <div
+      class="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-96 max-h-96 flex flex-col border border-gray-200 dark:border-gray-700">
+      <div class="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Browse Subtitle Files</h3>
+        <button id="closeSubtitleBrowser"
+          class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-xl">×</button>
       </div>
-      
-      <div class="flex items-center space-x-2 p-4 border-b">
-        <span id="subtitleCurrentPath" class="text-xs text-gray-600 flex-1">📂 /</span>
-        <button id="refreshSubtitleBtn" class="px-2 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
-          🔄
+
+      <div class="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+        <span id="subtitleCurrentPath" class="text-sm text-gray-600 dark:text-gray-400">📂 /</span>
+        <button id="refreshSubtitleBtn"
+          class="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors">
+          🔄 Refresh
         </button>
       </div>
-      
-      <div id="subtitleFileBrowser" class="flex-1 overflow-y-auto p-4 text-sm">
-        <div class="text-center text-gray-500 py-4">Loading...</div>
+
+      <div id="subtitleFileBrowser" class="flex-1 overflow-y-auto p-4">
+        <div class="text-center text-gray-500 dark:text-gray-400 py-8">Loading...</div>
       </div>
-      
-      <div class="p-4 border-t bg-gray-50">
-        <div class="flex space-x-2">
-          <button id="selectSubtitleBtn" 
-            class="flex-1 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
+
+      <div class="p-6 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700">
+        <div class="flex space-x-3">
+          <button id="selectSubtitleBtn"
+            class="flex-1 bg-primary-500 hover:bg-primary-600 text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:bg-gray-300 dark:disabled:bg-gray-600 disabled:cursor-not-allowed"
             disabled>
             Select File
           </button>
-          <button id="cancelSubtitleBtn" class="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
+          <button id="cancelSubtitleBtn"
+            class="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500 font-medium transition-colors">
             Cancel
           </button>
         </div>
