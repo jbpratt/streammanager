@@ -520,7 +520,6 @@ func (s *StreamManager) readFromFIFO(ctx context.Context, fifo string) error {
 			args = append(args,
 				"-g", s.config.KeyframeInterval,
 				"-keyint_min", s.config.KeyframeInterval,
-				"-no-scenecut", "1", // Disable scene cut for consistent keyframes
 			)
 		}
 
