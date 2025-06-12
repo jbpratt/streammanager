@@ -20,7 +20,7 @@ class StreamManager {
 
         // Theme management
         this.initTheme();
-        
+
         this.initEventListeners();
     }
 
@@ -29,14 +29,14 @@ class StreamManager {
         const savedTheme = localStorage.getItem('theme');
         const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
         const theme = savedTheme || (prefersDark ? 'dark' : 'light');
-        
+
         this.setTheme(theme);
     }
 
     setTheme(theme) {
         const html = document.documentElement;
         const themeIcon = document.getElementById('themeIcon');
-        
+
         if (theme === 'dark') {
             html.classList.add('dark');
             themeIcon.textContent = '☀️';
@@ -44,7 +44,7 @@ class StreamManager {
             html.classList.remove('dark');
             themeIcon.textContent = '🌙';
         }
-        
+
         localStorage.setItem('theme', theme);
     }
 
@@ -64,18 +64,18 @@ class StreamManager {
     initEventListeners() {
         // Theme toggle
         document.getElementById('themeToggle').addEventListener('click', () => this.toggleTheme());
-        
+
         // Stream controls
         document.getElementById('toggleBtn').addEventListener('click', () => this.toggle());
         document.getElementById('enqueueLocalBtn').addEventListener('click', () => this.enqueueLocal());
         document.getElementById('enqueueServerBtn').addEventListener('click', () => this.enqueueServer());
         document.getElementById('skipBtn').addEventListener('click', () => this.skip());
-        
+
         // Collapsible sections
         document.getElementById('configToggle').addEventListener('click', () => this.toggleConfigSettings());
         document.getElementById('overlayToggle').addEventListener('click', () => this.toggleOverlaySettings());
         document.getElementById('fileModeToggle').addEventListener('click', () => this.toggleFileModeSettings());
-        
+
         // File management
         document.getElementById('showFilename').addEventListener('change', () => this.toggleOverlayOptions());
         document.getElementById('localFilesBtn').addEventListener('click', () => this.switchToLocalFiles());
@@ -1109,7 +1109,7 @@ class StreamManager {
 
     async setAppLogLevel() {
         const appLogLevel = document.getElementById('appLogLevel').value;
-        
+
         try {
             const response = await fetch('/log-level', {
                 method: 'POST',
