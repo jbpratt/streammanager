@@ -83,6 +83,8 @@ class StreamManager {
         }
     }
 
+
+
     toggleOverlayOptions() {
         const checkbox = document.getElementById('showFilename');
         const options = document.getElementById('overlayOptions');
@@ -201,6 +203,9 @@ class StreamManager {
             fontSize: parseInt(document.getElementById('fontSize').value)
         };
 
+        // Get start timestamp from local file input
+        const startTimestamp = document.getElementById('startTimestamp').value.trim();
+
         try {
             const response = await fetch('/enqueue', {
                 method: 'POST',
@@ -209,7 +214,8 @@ class StreamManager {
                 },
                 body: JSON.stringify({
                     file: fileName,
-                    overlay: overlaySettings
+                    overlay: overlaySettings,
+                    startTimestamp: startTimestamp
                 })
             });
 
@@ -240,6 +246,9 @@ class StreamManager {
             fontSize: parseInt(document.getElementById('fontSize').value)
         };
 
+        // Get start timestamp from server file input
+        const startTimestamp = document.getElementById('startTimestampServer').value.trim();
+
         try {
             const response = await fetch('/enqueue', {
                 method: 'POST',
@@ -248,7 +257,8 @@ class StreamManager {
                 },
                 body: JSON.stringify({
                     file: this.selectedFile,
-                    overlay: overlaySettings
+                    overlay: overlaySettings,
+                    startTimestamp: startTimestamp
                 })
             });
 

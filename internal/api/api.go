@@ -164,8 +164,9 @@ func (s *Server) handleEnqueue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		File    string                        `json:"file"`
-		Overlay streammanager.OverlaySettings `json:"overlay"`
+		File           string                        `json:"file"`
+		Overlay        streammanager.OverlaySettings `json:"overlay"`
+		StartTimestamp string                        `json:"startTimestamp,omitempty"` // Optional start timestamp
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -212,10 +213,11 @@ func (s *Server) handleEnqueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := s.sm.Enqueue(file, req.Overlay)
+	id := s.sm.Enqueue(file, req.Overlay, req.StartTimestamp)
 	s.logger.Info("File added to queue",
 		zap.String("file", file),
 		zap.String("id", id),
+		zap.String("startTimestamp", req.StartTimestamp),
 		zap.Any("overlay", req.Overlay))
 
 	w.Header().Set("Content-Type", "application/json")

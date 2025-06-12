@@ -3,11 +3,13 @@ package streammanager
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -22,9 +24,10 @@ import (
 const fifoPath = "/tmp/streampipe.fifo"
 
 type entry struct {
-	ID      string          `json:"id"`
-	File    string          `json:"file"`
-	Overlay OverlaySettings `json:"overlay"`
+	ID             string          `json:"id"`
+	File           string          `json:"file"`
+	Overlay        OverlaySettings `json:"overlay"`
+	StartTimestamp string          `json:"startTimestamp,omitempty"` // Format: HH:MM:SS or seconds
 }
 
 type OverlaySettings struct {
@@ -149,8 +152,9 @@ func (s *StreamManager) Run(ctx context.Context, cfg Config) error {
 
 				s.logger.Info("Processing file",
 					zap.String("file", entry.File),
-					zap.String("id", entry.ID))
-				if err := s.writeToFIFO(s.currentCtx, entry.File, entry.Overlay); err != nil {
+					zap.String("id", entry.ID),
+					zap.String("startTimestamp", entry.StartTimestamp))
+				if err := s.writeToFIFO(s.currentCtx, entry.File, entry.Overlay, entry.StartTimestamp); err != nil {
 					if errors.Is(err, context.Canceled) {
 						s.logger.Info("Processing of file was cancelled",
 							zap.String("file", entry.File),
@@ -184,12 +188,12 @@ func (s *StreamManager) Run(ctx context.Context, cfg Config) error {
 	return err
 }
 
-func (s *StreamManager) Enqueue(file string, overlay OverlaySettings) string {
+func (s *StreamManager) Enqueue(file string, overlay OverlaySettings, startTimestamp string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	id := fmt.Sprintf("%d", time.Now().UnixNano())
-	entry := entry{ID: id, File: file, Overlay: overlay}
+	entry := entry{ID: id, File: file, Overlay: overlay, StartTimestamp: startTimestamp}
 	s.queue = append(s.queue, entry)
 
 	select {
@@ -279,17 +283,32 @@ func (s *StreamManager) Stop() bool {
 	return false
 }
 
-func (s *StreamManager) writeToFIFO(ctx context.Context, source string, overlay OverlaySettings) error {
+func (s *StreamManager) writeToFIFO(ctx context.Context, source string, overlay OverlaySettings, startTimestamp string) error {
+	// Validate start timestamp if provided
+	if err := s.validateStartTimestamp(source, startTimestamp); err != nil {
+		return fmt.Errorf("timestamp validation failed: %w", err)
+	}
+
 	fifo, err := os.OpenFile(fifoPath, os.O_WRONLY, os.ModeNamedPipe)
 	if err != nil {
 		return err
 	}
-	defer fifo.Close()
+	defer func() {
+		if err := fifo.Close(); err != nil {
+			s.logger.Warn("Failed to close FIFO", zap.Error(err))
+		}
+	}()
 
 	args := []string{
 		"-hide_banner",
-		"-i", source,
 	}
+
+	// Add start timestamp if provided
+	if startTimestamp != "" {
+		args = append(args, "-ss", startTimestamp)
+	}
+
+	args = append(args, "-i", source)
 
 	// Set log level from config or default to error
 	logLevel := s.config.LogLevel
@@ -576,4 +595,110 @@ type progressData struct {
 	Speed      string    `json:"speed"`
 	Progress   string    `json:"progress"`
 	Timestamp  time.Time `json:"timestamp"`
+}
+
+// ffprobeResult represents the output from ffprobe
+type ffprobeResult struct {
+	Streams []struct {
+		Duration string `json:"duration"`
+	} `json:"streams"`
+	Format struct {
+		Duration string `json:"duration"`
+	} `json:"format"`
+}
+
+// ValidateStartTimestamp validates that the start timestamp is not greater than file duration
+func (s *StreamManager) ValidateStartTimestamp(filePath, startTimestamp string) error {
+	return s.validateStartTimestamp(filePath, startTimestamp)
+}
+
+// validateStartTimestamp validates that the start timestamp is not greater than file duration
+func (s *StreamManager) validateStartTimestamp(filePath, startTimestamp string) error {
+	if startTimestamp == "" {
+		return nil // No timestamp specified
+	}
+
+	// Get file duration using ffprobe
+	duration, err := s.getFileDuration(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to get file duration: %w", err)
+	}
+
+	// Convert start timestamp to seconds
+	startSeconds, err := s.parseTimestamp(startTimestamp)
+	if err != nil {
+		return fmt.Errorf("invalid timestamp format: %w", err)
+	}
+
+	if startSeconds >= duration {
+		return fmt.Errorf("start timestamp (%s) is greater than or equal to file duration (%.2fs)",
+			startTimestamp, duration)
+	}
+
+	return nil
+}
+
+// getFileDuration gets the duration of a file using ffprobe
+func (s *StreamManager) getFileDuration(filePath string) (float64, error) {
+	cmd := exec.Command("ffprobe",
+		"-v", "quiet",
+		"-print_format", "json",
+		"-show_format",
+		"-show_streams",
+		filePath)
+
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, fmt.Errorf("ffprobe failed: %w", err)
+	}
+
+	var result ffprobeResult
+	if err := json.Unmarshal(output, &result); err != nil {
+		return 0, fmt.Errorf("failed to parse ffprobe output: %w", err)
+	}
+
+	// Try to get duration from format first, then from streams
+	var durationStr string
+	if result.Format.Duration != "" {
+		durationStr = result.Format.Duration
+	} else if len(result.Streams) > 0 && result.Streams[0].Duration != "" {
+		durationStr = result.Streams[0].Duration
+	} else {
+		return 0, errors.New("could not determine file duration")
+	}
+
+	duration, err := strconv.ParseFloat(durationStr, 64)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse duration: %w", err)
+	}
+
+	return duration, nil
+}
+
+// parseTimestamp converts timestamp string to seconds
+func (s *StreamManager) parseTimestamp(timestamp string) (float64, error) {
+	// Try parsing as seconds first
+	if seconds, err := strconv.ParseFloat(timestamp, 64); err == nil {
+		return seconds, nil
+	}
+
+	// Try parsing as HH:MM:SS format
+	timeRegex := regexp.MustCompile(`^(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d+))?$`)
+	matches := timeRegex.FindStringSubmatch(timestamp)
+	if len(matches) < 4 {
+		return 0, errors.New("timestamp must be in HH:MM:SS format or numeric seconds")
+	}
+
+	hours, _ := strconv.Atoi(matches[1])
+	minutes, _ := strconv.Atoi(matches[2])
+	seconds, _ := strconv.Atoi(matches[3])
+
+	var milliseconds float64
+	if len(matches) > 4 && matches[4] != "" {
+		ms, _ := strconv.ParseFloat("0."+matches[4], 64)
+		milliseconds = ms
+	}
+
+	totalSeconds := float64(hours*3600+minutes*60+seconds) + milliseconds
+	return totalSeconds, nil
 }
