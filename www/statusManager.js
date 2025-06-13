@@ -60,7 +60,7 @@ export default class StatusManager {
 
         // Update timestamp
         if (progress.timestamp) {
-            document.getElementById('progressTimestamp').textContent = progress.timestamp.toLocaleTimeString();
+            document.getElementById('progressTimestamp').textContent = new Date(progress.timestamp).toLocaleTimeString();
         }
 
         // Update progress bar
@@ -90,6 +90,10 @@ export default class StatusManager {
 
     showQueue(data) {
         const queueDiv = document.getElementById('queue');
+        if (!queueDiv) {
+            console.error('Queue element not found');
+            return [];
+        }
         const queueItems = data.queue || [];
         const status = data.status || {};
 

@@ -407,10 +407,10 @@ class StreamManager {
   }
 
   showQueue(data) {
-    const queueDiv = this.statusManager.showQueue(data);
+    const queue = this.statusManager.showQueue(data);
 
     // Add event listeners to remove buttons
-    queueDiv.querySelectorAll(".remove-btn").forEach((btn) => {
+    queue.forEach((btn) => {
       btn.addEventListener("click", (e) => {
         const id = e.target.getAttribute("data-id");
         this.dequeue(id);
