@@ -45,7 +45,7 @@ func TestEndToEnd(t *testing.T) {
 
 	// Create API server with embedded RTMP server
 	atomicLevel := zap.NewAtomicLevelAt(zap.InfoLevel)
-	apiServer, err := api.New(logger, ":1937", &atomicLevel)
+	apiServer, err := api.New(logger, ":1937", &atomicLevel, "/tmp/streampipe-test.fifo")
 	if err != nil {
 		t.Fatalf("Failed to create API server: %v", err)
 	}

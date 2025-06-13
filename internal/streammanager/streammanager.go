@@ -598,7 +598,7 @@ func (s *StreamManager) readFromFIFO(ctx context.Context, fifo string) error {
 			// Log the file location for reference
 			s.logger.Debug("FFmpeg streaming output written to", zap.String("logFile", logFile.Name()))
 		}()
-		
+
 		// Create writers for both file and stdout
 		fileWriter := &prefixWriter{
 			prefix: "[STREAMING] ",
