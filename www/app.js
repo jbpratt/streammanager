@@ -9,6 +9,7 @@ import ProgressManager from "./progressManager.js";
 import StatusManager from "./statusManager.js";
 import FileUI from "./fileUI.js";
 import SubtitleUI from "./subtitleUI.js";
+import SettingsManager from "./settingsManager.js";
 
 class StreamManager {
   constructor() {
@@ -22,6 +23,7 @@ class StreamManager {
     this.subtitleManager = new SubtitleManager(this.fileManager);
     this.progressManager = new ProgressManager();
     this.statusManager = new StatusManager();
+    this.settingsManager = new SettingsManager();
 
     // UI managers
     this.fileUI = new FileUI(this.fileManager, this.statusManager);
@@ -33,6 +35,7 @@ class StreamManager {
 
     this.setupManagerCallbacks();
     this.initEventListeners();
+    this.settingsManager.init();
   }
 
   setupManagerCallbacks() {
