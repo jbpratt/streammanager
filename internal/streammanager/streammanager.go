@@ -1,18 +1,14 @@
 package streammanager
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -21,35 +17,6 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 )
-
-// prefixWriter adds a prefix to each line written to the underlying writer
-type prefixWriter struct {
-	prefix string
-	writer io.Writer
-}
-
-func (pw *prefixWriter) Write(p []byte) (n int, err error) {
-	// Split the input into lines and add prefix to each
-	lines := strings.Split(string(p), "\n")
-	var prefixedLines []string
-
-	for i, line := range lines {
-		if i == len(lines)-1 && line == "" {
-			// Don't prefix empty last line (from trailing newline)
-			prefixedLines = append(prefixedLines, line)
-		} else {
-			prefixedLines = append(prefixedLines, pw.prefix+line)
-		}
-	}
-
-	prefixedOutput := strings.Join(prefixedLines, "\n")
-	_, err = pw.writer.Write([]byte(prefixedOutput))
-	if err != nil {
-		return 0, err
-	}
-
-	return len(prefixedOutput), nil
-}
 
 type entry struct {
 	ID             string          `json:"id"`
@@ -317,7 +284,7 @@ func (s *StreamManager) Stop() bool {
 
 func (s *StreamManager) writeToFIFO(ctx context.Context, source string, overlay OverlaySettings, startTimestamp string, subtitleFile string) error {
 	// Validate start timestamp if provided
-	if err := s.validateStartTimestamp(source, startTimestamp); err != nil {
+	if err := s.validateStartTimestamp(ctx, source, startTimestamp); err != nil {
 		return fmt.Errorf("timestamp validation failed: %w", err)
 	}
 
@@ -509,7 +476,7 @@ func (s *StreamManager) readFromFIFO(ctx context.Context, fifo string) error {
 	// Use source file instead of FIFO to avoid probing issues
 	var probeInfo fileProbeInfo
 	if sourceFile != "" {
-		probeInfo = s.probeFile(sourceFile)
+		probeInfo = probeFile(ctx, s.logger, sourceFile)
 	}
 
 	// Handle video encoding - consolidate keyframes and bitrate limiting here
@@ -623,7 +590,7 @@ func (s *StreamManager) readFromFIFO(ctx context.Context, fifo string) error {
 	}
 
 	// Start a goroutine to parse progress data
-	go s.parseProgress(ctx, stdout)
+	go parseProgress(ctx, stdout, s.progressCh)
 
 	err = cmd.Wait()
 	if err != nil {
@@ -637,91 +604,6 @@ func (s *StreamManager) readFromFIFO(ctx context.Context, fifo string) error {
 		return err
 	}
 	return nil
-}
-
-func (s *StreamManager) parseProgress(ctx context.Context, r io.Reader) {
-	scanner := bufio.NewScanner(r)
-	var progressBuffer strings.Builder
-
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		// FFmpeg progress output ends each block with "progress=end" or "progress=continue"
-		if strings.HasPrefix(line, "progress=") {
-			if progressBuffer.Len() > 0 {
-				data := parseProgressData(progressBuffer.String())
-				select {
-				case s.progressCh <- data:
-				case <-ctx.Done():
-					return
-				default:
-					// Channel full, skip this update
-				}
-				progressBuffer.Reset()
-			}
-		} else if line != "" {
-			progressBuffer.WriteString(line)
-			progressBuffer.WriteString("\n")
-		}
-	}
-}
-
-func parseProgressData(body string) progressData {
-	data := progressData{
-		Timestamp: time.Now(),
-	}
-
-	lines := strings.SplitSeq(body, "\n")
-	for line := range lines {
-		if line == "" {
-			continue
-		}
-
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-
-		key := strings.TrimSpace(parts[0])
-		value := strings.TrimSpace(parts[1])
-
-		switch key {
-		case "frame":
-			if v, err := strconv.ParseInt(value, 10, 64); err == nil {
-				data.Frame = v
-			}
-		case "fps":
-			if v, err := strconv.ParseFloat(value, 64); err == nil {
-				data.Fps = v
-			}
-		case "bitrate":
-			data.Bitrate = value
-		case "total_size":
-			if v, err := strconv.ParseInt(value, 10, 64); err == nil {
-				data.TotalSize = v
-			}
-		case "out_time_us":
-			if v, err := strconv.ParseInt(value, 10, 64); err == nil {
-				data.OutTimeUs = v
-			}
-		case "out_time":
-			data.OutTime = value
-		case "dup_frames":
-			if v, err := strconv.ParseInt(value, 10, 64); err == nil {
-				data.DupFrames = v
-			}
-		case "drop_frames":
-			if v, err := strconv.ParseInt(value, 10, 64); err == nil {
-				data.DropFrames = v
-			}
-		case "speed":
-			data.Speed = value
-		case "progress":
-			data.Progress = value
-		}
-	}
-
-	return data
 }
 
 // GetProgressChan returns a channel that receives progress updates
@@ -739,49 +621,25 @@ func (s *StreamManager) GetLatestProgress() (progressData, bool) {
 	}
 }
 
-type progressData struct {
-	Frame      int64     `json:"frame"`
-	Fps        float64   `json:"fps"`
-	Bitrate    string    `json:"bitrate"`
-	TotalSize  int64     `json:"total_size"`
-	OutTimeUs  int64     `json:"out_time_us"`
-	OutTime    string    `json:"out_time"`
-	DupFrames  int64     `json:"dup_frames"`
-	DropFrames int64     `json:"drop_frames"`
-	Speed      string    `json:"speed"`
-	Progress   string    `json:"progress"`
-	Timestamp  time.Time `json:"timestamp"`
-}
-
-// ffprobeResult represents the output from ffprobe
-type ffprobeResult struct {
-	Streams []struct {
-		Duration string `json:"duration"`
-	} `json:"streams"`
-	Format struct {
-		Duration string `json:"duration"`
-	} `json:"format"`
-}
-
 // ValidateStartTimestamp validates that the start timestamp is not greater than file duration
-func (s *StreamManager) ValidateStartTimestamp(filePath, startTimestamp string) error {
-	return s.validateStartTimestamp(filePath, startTimestamp)
+func (s *StreamManager) ValidateStartTimestamp(ctx context.Context, filePath, startTimestamp string) error {
+	return s.validateStartTimestamp(ctx, filePath, startTimestamp)
 }
 
 // validateStartTimestamp validates that the start timestamp is not greater than file duration
-func (s *StreamManager) validateStartTimestamp(filePath, startTimestamp string) error {
+func (s *StreamManager) validateStartTimestamp(ctx context.Context, filePath, startTimestamp string) error {
 	if startTimestamp == "" {
 		return nil // No timestamp specified
 	}
 
 	// Get file duration using ffprobe
-	duration, err := s.getFileDuration(filePath)
+	duration, err := getFileDuration(ctx, filePath)
 	if err != nil {
 		return fmt.Errorf("failed to get file duration: %w", err)
 	}
 
 	// Convert start timestamp to seconds
-	startSeconds, err := s.parseTimestamp(startTimestamp)
+	startSeconds, err := parseTimestamp(startTimestamp)
 	if err != nil {
 		return fmt.Errorf("invalid timestamp format: %w", err)
 	}
@@ -792,212 +650,6 @@ func (s *StreamManager) validateStartTimestamp(filePath, startTimestamp string) 
 	}
 
 	return nil
-}
-
-// getFileDuration gets the duration of a file using ffprobe
-func (s *StreamManager) getFileDuration(filePath string) (float64, error) {
-	cmd := exec.Command("ffprobe",
-		"-v", "quiet",
-		"-print_format", "json",
-		"-show_format",
-		"-show_streams",
-		filePath)
-
-	output, err := cmd.Output()
-	if err != nil {
-		// Try to get stderr from the exit error
-		if exitErr, ok := err.(*exec.ExitError); ok && len(exitErr.Stderr) > 0 {
-			return 0, fmt.Errorf("ffprobe failed: %w\nFFprobe stderr: %s", err, string(exitErr.Stderr))
-		}
-		return 0, fmt.Errorf("ffprobe failed: %w", err)
-	}
-
-	var result ffprobeResult
-	if err := json.Unmarshal(output, &result); err != nil {
-		return 0, fmt.Errorf("failed to parse ffprobe output: %w", err)
-	}
-
-	// Try to get duration from format first, then from streams
-	var durationStr string
-	if result.Format.Duration != "" {
-		durationStr = result.Format.Duration
-	} else if len(result.Streams) > 0 && result.Streams[0].Duration != "" {
-		durationStr = result.Streams[0].Duration
-	} else {
-		return 0, errors.New("could not determine file duration")
-	}
-
-	duration, err := strconv.ParseFloat(durationStr, 64)
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse duration: %w", err)
-	}
-
-	return duration, nil
-}
-
-// fileProbeInfo contains all the information we need from ffprobe
-type fileProbeInfo struct {
-	needsVideoReencoding bool
-	needsAudioReencoding bool
-	needsExplicitMapping bool
-	duration             float64
-}
-
-// probeFile runs ffprobe once and extracts all needed information
-func (s *StreamManager) probeFile(inputPath string) fileProbeInfo {
-	cmd := exec.Command("ffprobe",
-		"-v", "quiet",
-		"-print_format", "json",
-		"-show_format",
-		"-show_streams",
-		inputPath,
-	)
-
-	output, err := cmd.Output()
-	if err != nil {
-		s.logger.Warn("Failed to probe file, assuming re-encoding needed", zap.Error(err))
-		return fileProbeInfo{
-			needsVideoReencoding: true,
-			needsAudioReencoding: true,
-			needsExplicitMapping: true,
-			duration:             0,
-		}
-	}
-
-	var result struct {
-		Streams []struct {
-			CodecType string `json:"codec_type"`
-			CodecName string `json:"codec_name"`
-			PixFmt    string `json:"pix_fmt"`
-			Profile   string `json:"profile"`
-			Duration  string `json:"duration"`
-		} `json:"streams"`
-		Format struct {
-			Duration string `json:"duration"`
-		} `json:"format"`
-	}
-
-	if err := json.Unmarshal(output, &result); err != nil {
-		s.logger.Warn("Failed to parse ffprobe output", zap.Error(err))
-		return fileProbeInfo{
-			needsVideoReencoding: true,
-			needsAudioReencoding: true,
-			needsExplicitMapping: true,
-			duration:             0,
-		}
-	}
-
-	info := fileProbeInfo{}
-
-	// Analyze streams
-	var videoStream, audioStream *struct {
-		CodecType string `json:"codec_type"`
-		CodecName string `json:"codec_name"`
-		PixFmt    string `json:"pix_fmt"`
-		Profile   string `json:"profile"`
-		Duration  string `json:"duration"`
-	}
-
-	hasSubtitles := false
-	streamCount := len(result.Streams)
-
-	for i := range result.Streams {
-		stream := &result.Streams[i]
-		switch stream.CodecType {
-		case "video":
-			if videoStream == nil {
-				videoStream = stream
-			}
-		case "audio":
-			if audioStream == nil {
-				audioStream = stream
-			}
-		case "subtitle":
-			hasSubtitles = true
-		}
-	}
-
-	// Determine video re-encoding needs
-	if videoStream != nil {
-		switch videoStream.CodecName {
-		case "hevc", "h265":
-			info.needsVideoReencoding = true
-		case "h264", "avc":
-			// Check for 10-bit or incompatible profiles
-			if strings.Contains(videoStream.PixFmt, "10le") || strings.Contains(videoStream.PixFmt, "10be") {
-				info.needsVideoReencoding = true
-			}
-			if strings.Contains(strings.ToLower(videoStream.Profile), "high 4:4:4") ||
-				strings.Contains(strings.ToLower(videoStream.Profile), "high 10") {
-				info.needsVideoReencoding = true
-			}
-		default:
-			info.needsVideoReencoding = true
-		}
-	} else {
-		info.needsVideoReencoding = true
-	}
-
-	// Determine audio re-encoding needs
-	if audioStream != nil {
-		switch audioStream.CodecName {
-		case "aac", "mp3":
-			info.needsAudioReencoding = false
-		default:
-			info.needsAudioReencoding = true
-		}
-	} else {
-		info.needsAudioReencoding = true
-	}
-
-	// Determine explicit mapping needs
-	info.needsExplicitMapping = hasSubtitles || streamCount > 5
-
-	// Extract duration
-	var durationStr string
-	if result.Format.Duration != "" {
-		durationStr = result.Format.Duration
-	} else if videoStream != nil && videoStream.Duration != "" {
-		durationStr = videoStream.Duration
-	} else if audioStream != nil && audioStream.Duration != "" {
-		durationStr = audioStream.Duration
-	}
-
-	if durationStr != "" {
-		if duration, err := strconv.ParseFloat(durationStr, 64); err == nil {
-			info.duration = duration
-		}
-	}
-
-	return info
-}
-
-// parseTimestamp converts timestamp string to seconds
-func (s *StreamManager) parseTimestamp(timestamp string) (float64, error) {
-	// Try parsing as seconds first
-	if seconds, err := strconv.ParseFloat(timestamp, 64); err == nil {
-		return seconds, nil
-	}
-
-	// Try parsing as HH:MM:SS format
-	timeRegex := regexp.MustCompile(`^(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d+))?$`)
-	matches := timeRegex.FindStringSubmatch(timestamp)
-	if len(matches) < 4 {
-		return 0, errors.New("timestamp must be in HH:MM:SS format or numeric seconds")
-	}
-
-	hours, _ := strconv.Atoi(matches[1])
-	minutes, _ := strconv.Atoi(matches[2])
-	seconds, _ := strconv.Atoi(matches[3])
-
-	var milliseconds float64
-	if len(matches) > 4 && matches[4] != "" {
-		ms, _ := strconv.ParseFloat("0."+matches[4], 64)
-		milliseconds = ms
-	}
-
-	totalSeconds := float64(hours*3600+minutes*60+seconds) + milliseconds
-	return totalSeconds, nil
 }
 
 // validateSubtitleFile validates that the subtitle file exists and has a supported format
