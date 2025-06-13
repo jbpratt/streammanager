@@ -303,99 +303,17 @@ func (s *StreamManager) writeToFIFO(ctx context.Context, source string, overlay 
 		}
 	}()
 
-	args := []string{
-		"-hide_banner",
+	cfg := ffmpegArgs{
+		source:         source,
+		overlay:        overlay,
+		startTimestamp: startTimestamp,
+		subtitleFile:   subtitleFile,
+		logLevel:       s.config.LogLevel,
+		encoder:        s.config.Encoder,
+		preset:         s.config.Preset,
 	}
 
-	// Add start timestamp if provided
-	if startTimestamp != "" {
-		args = append(args, "-ss", startTimestamp)
-	}
-
-	args = append(args, "-i", source)
-
-	// Add subtitle input if provided
-	if subtitleFile != "" {
-		args = append(args, "-i", subtitleFile)
-	}
-
-	// Set log level from config or default to error
-	logLevel := s.config.LogLevel
-	if logLevel == "" {
-		logLevel = "error"
-	}
-	args = append(args, "-loglevel", logLevel)
-
-	// Set default encoder and preset if not specified
-	encoder := s.config.Encoder
-	if encoder == "" {
-		encoder = "libx264"
-	}
-	preset := s.config.Preset
-	if preset == "" {
-		preset = "ultrafast"
-	}
-
-	// Determine if we need to re-encode in writeToFIFO
-	// Only re-encode here for overlays; codec conversion will be handled in readFromFIFO
-	needsReencoding := overlay.ShowFilename || subtitleFile != ""
-
-	// Build video filter chain
-	var videoFilter string
-
-	// Start with subtitle filter if provided
-	if subtitleFile != "" {
-		videoFilter = fmt.Sprintf("subtitles='%s'", strings.ReplaceAll(subtitleFile, "'", "\\'"))
-	}
-
-	// Add filename overlay if enabled
-	if overlay.ShowFilename {
-		// Get just the filename without path
-		filename := strings.ReplaceAll(source, "\\", "/")
-		if idx := strings.LastIndex(filename, "/"); idx != -1 {
-			filename = filename[idx+1:]
-		}
-
-		// Determine position coordinates
-		var x, y string
-		switch overlay.Position {
-		case "top-left":
-			x, y = "10", "10"
-		case "top-right":
-			x, y = "main_w-text_w-10", "10"
-		case "bottom-left":
-			x, y = "10", "main_h-text_h-10"
-		case "bottom-right":
-			x, y = "main_w-text_w-10", "main_h-text_h-10"
-		default:
-			x, y = "main_w-text_w-10", "main_h-text_h-10"
-		}
-
-		filenameFilter := fmt.Sprintf("drawtext=text='%s':fontsize=%d:fontcolor=white:x=%s:y=%s:box=1:boxcolor=black@0.5",
-			filename, overlay.FontSize, x, y)
-
-		// Chain filters if subtitle filter exists
-		if videoFilter != "" {
-			videoFilter = videoFilter + "," + filenameFilter
-		} else {
-			videoFilter = filenameFilter
-		}
-	}
-
-	// Apply video filter if any filters are defined
-	if videoFilter != "" {
-		args = append(args, "-vf", videoFilter)
-		args = append(args, "-fps_mode", "vfr")
-	}
-
-	// Add encoding settings if re-encoding is needed for overlays
-	if needsReencoding {
-		args = append(args, "-c:v", encoder, "-preset", preset, "-crf", "18") // Higher quality for intermediate
-		args = append(args, "-c:a", "copy")
-	} else {
-		args = append(args, "-c", "copy") // Copy both video and audio if no overlays
-	}
-	args = append(args, "-f", "mpegts", "pipe:1")
+	args := buildFFmpegArgs(cfg)
 
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 	cmd.Stdout = fifo
@@ -457,21 +375,6 @@ func (s *StreamManager) readFromFIFO(ctx context.Context, fifo string) error {
 		}
 	}
 
-	// Set log level from config or default to error
-	logLevel := s.config.LogLevel
-	if logLevel == "" {
-		logLevel = "error"
-	}
-
-	args := []string{
-		"-hide_banner",
-		"-loglevel", logLevel,
-		"-progress", "pipe:1",
-		"-re", "-y",
-		"-i", fifo,
-		"-fflags", "+igndts",
-	}
-
 	// Probe input file once to get all needed information
 	// Use source file instead of FIFO to avoid probing issues
 	var probeInfo fileProbeInfo
@@ -479,70 +382,20 @@ func (s *StreamManager) readFromFIFO(ctx context.Context, fifo string) error {
 		probeInfo = probeFile(ctx, s.logger, sourceFile)
 	}
 
-	// Handle video encoding - consolidate keyframes and bitrate limiting here
-	needsVideoReencoding := s.config.KeyframeInterval != "" || s.config.MaxBitrate != "" || probeInfo.needsVideoReencoding
-
-	if needsVideoReencoding {
-		// Re-encode video for keyframe interval and/or bitrate limiting
-		encoder := s.config.Encoder
-		if encoder == "" {
-			encoder = "libx264"
-		}
-		preset := s.config.Preset
-		if preset == "" {
-			preset = "veryfast" // Faster preset for output encoding
-		}
-
-		args = append(args, "-c:v", encoder, "-preset", preset)
-
-		// Force 8-bit output for compatibility when re-encoding due to codec issues
-		if probeInfo.needsVideoReencoding {
-			args = append(args, "-pix_fmt", "yuv420p") // Force 8-bit
-		}
-
-		// Add keyframe settings if specified
-		if s.config.KeyframeInterval != "" {
-			args = append(args,
-				"-g", s.config.KeyframeInterval,
-				"-keyint_min", s.config.KeyframeInterval,
-			)
-		}
-
-		// Add bitrate settings if specified
-		if s.config.MaxBitrate != "" {
-			args = append(args,
-				"-b:v", s.config.MaxBitrate,
-				"-maxrate", s.config.MaxBitrate,
-				"-bufsize", s.config.MaxBitrate,
-			)
-		} else {
-			args = append(args, "-crf", "23")
-		}
-	} else {
-		// Copy video when no reencoding needed
-		args = append(args, "-c:v", "copy")
+	cfg := ffmpegArgs{
+		fifoPath:         fifo,
+		destination:      dest,
+		username:         s.config.Username,
+		password:         s.config.Password,
+		logLevel:         s.config.LogLevel,
+		encoder:          s.config.Encoder,
+		preset:           s.config.Preset,
+		keyframeInterval: s.config.KeyframeInterval,
+		maxBitrate:       s.config.MaxBitrate,
+		probeInfo:        probeInfo,
 	}
 
-	// Handle stream mapping if needed (only for complex files with subtitles/many streams)
-	if probeInfo.needsExplicitMapping {
-		args = append(args,
-			"-map", "0:v:0", // Map first video stream
-			"-map", "0:a:0", // Map first audio stream only
-		)
-	}
-
-	// Handle audio encoding based on codec compatibility
-	if probeInfo.needsAudioReencoding {
-		args = append(args, "-c:a", "aac", "-b:a", "128k", "-ac", "2")
-	} else {
-		args = append(args, "-c:a", "aac", "-ac", "2")
-	}
-
-	args = append(args,
-		"-f", "flv",
-		"-flvflags", "no_duration_filesize",
-		dest,
-	)
+	args := buildFFmpegArgs(cfg)
 
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 
