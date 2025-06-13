@@ -91,36 +91,7 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("Failed to get absolute path to test file: %v", err)
 	}
 
-	// Test 1: Start streaming to destination RTMP server
-	t.Run("start_streaming", func(t *testing.T) {
-		config := streammanager.Config{
-			Destination: "rtmp://localhost:1936/live/test",
-			RTMPAddr:    ":1937",
-			Encoder:     "libx264",
-			Preset:      "ultrafast",
-			LogLevel:    "warning",
-		}
-
-		configJSON, err := json.Marshal(config)
-		if err != nil {
-			t.Fatalf("Failed to marshal config: %v", err)
-		}
-
-		resp, err := http.Post("http://localhost:8081/start", "application/json", bytes.NewReader(configJSON))
-		if err != nil {
-			t.Fatalf("Failed to start streaming: %v", err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("Expected status 200, got %d", resp.StatusCode)
-		}
-
-		// Give streaming time to start
-		time.Sleep(500 * time.Millisecond)
-	})
-
-	// Test 2: Enqueue test file
+	// Test 1: Enqueue test file
 	t.Run("enqueue_file", func(t *testing.T) {
 		reqBody := map[string]any{
 			"file": testFile,
@@ -160,6 +131,35 @@ func TestEndToEnd(t *testing.T) {
 		}
 
 		logger.Info("Enqueued file with ID", zap.String("id", result["id"]))
+	})
+
+	// Test 2: Start streaming to destination RTMP server
+	t.Run("start_streaming", func(t *testing.T) {
+		config := streammanager.Config{
+			Destination: "rtmp://localhost:1936/live/test",
+			RTMPAddr:    ":1937",
+			Encoder:     "libx264",
+			Preset:      "ultrafast",
+			LogLevel:    "warning",
+		}
+
+		configJSON, err := json.Marshal(config)
+		if err != nil {
+			t.Fatalf("Failed to marshal config: %v", err)
+		}
+
+		resp, err := http.Post("http://localhost:8081/start", "application/json", bytes.NewReader(configJSON))
+		if err != nil {
+			t.Fatalf("Failed to start streaming: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		// Give streaming time to start
+		time.Sleep(500 * time.Millisecond)
 	})
 
 	// Test 3: Check queue status

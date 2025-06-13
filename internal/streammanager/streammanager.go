@@ -60,6 +60,7 @@ type StreamManager struct {
 	lastErrorTime time.Time
 	progressCh    chan progressData
 	fifoPath      string
+	fifo          io.WriteCloser
 }
 
 func New(logger *zap.Logger, fifoPath string) (*StreamManager, error) {
@@ -83,6 +84,11 @@ func (s *StreamManager) cleanup() {
 	if s.currentCancel != nil {
 		s.currentCancel()
 		s.currentCancel = nil
+	}
+
+	if s.fifo != nil {
+		_ = s.fifo.Close()
+		s.fifo = nil
 	}
 
 	// Reset main context references
@@ -118,7 +124,8 @@ func (s *StreamManager) Run(ctx context.Context, cfg Config) error {
 	s.ctx, s.cancel = context.WithCancel(ctx)
 
 	eg.Go(func() error {
-		s.logger.Debug("Streaming FIFO reader", zap.String("destination", s.config.Destination))
+		time.Sleep(5 * time.Second)
+		s.logger.Info("Streaming FIFO reader", zap.String("destination", s.config.Destination))
 		if err := s.readFromFIFO(s.ctx, s.fifoPath); err != nil {
 			if errors.Is(err, context.Canceled) {
 				s.logger.Debug("FIFO reader cancelled")
@@ -131,6 +138,12 @@ func (s *StreamManager) Run(ctx context.Context, cfg Config) error {
 	})
 
 	eg.Go(func() error {
+		var err error
+		s.fifo, err = os.OpenFile(s.fifoPath, os.O_WRONLY, os.ModeNamedPipe)
+		if err != nil {
+			return err
+		}
+
 		for {
 			select {
 			case <-s.ctx.Done():
@@ -293,16 +306,6 @@ func (s *StreamManager) writeToFIFO(ctx context.Context, source string, overlay 
 		return fmt.Errorf("subtitle validation failed: %w", err)
 	}
 
-	fifo, err := os.OpenFile(s.fifoPath, os.O_WRONLY, os.ModeNamedPipe)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err := fifo.Close(); err != nil {
-			s.logger.Warn("Failed to close FIFO", zap.Error(err))
-		}
-	}()
-
 	cfg := ffmpegArgs{
 		source:         source,
 		overlay:        overlay,
@@ -316,7 +319,7 @@ func (s *StreamManager) writeToFIFO(ctx context.Context, source string, overlay 
 	args := buildFFmpegArgs(cfg)
 
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	cmd.Stdout = fifo
+	cmd.Stdout = s.fifo
 
 	// Capture stderr for error reporting while also writing to file for preprocessing logs
 	var stderrBuf strings.Builder
