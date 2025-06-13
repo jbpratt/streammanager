@@ -48,8 +48,7 @@ func (pw *prefixWriter) Write(p []byte) (n int, err error) {
 		return 0, err
 	}
 
-	// Return the number of bytes from the original input
-	return len(p), nil
+	return len(prefixedOutput), nil
 }
 
 type entry struct {
