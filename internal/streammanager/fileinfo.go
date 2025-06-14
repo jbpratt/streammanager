@@ -28,6 +28,7 @@ type fileProbeInfo struct {
 	needsVideoReencoding bool
 	needsAudioReencoding bool
 	needsExplicitMapping bool
+	hasAudio             bool
 	duration             float64
 }
 
@@ -169,6 +170,7 @@ func probeFile(ctx context.Context, logger *zap.Logger, inputPath string) filePr
 
 	// Determine audio re-encoding needs
 	if audioStream != nil {
+		info.hasAudio = true
 		switch audioStream.CodecName {
 		case "aac", "mp3":
 			info.needsAudioReencoding = false
@@ -176,7 +178,8 @@ func probeFile(ctx context.Context, logger *zap.Logger, inputPath string) filePr
 			info.needsAudioReencoding = true
 		}
 	} else {
-		info.needsAudioReencoding = true
+		info.hasAudio = false
+		info.needsAudioReencoding = false
 	}
 
 	// Determine explicit mapping needs

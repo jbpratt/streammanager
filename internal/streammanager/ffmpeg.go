@@ -5,20 +5,14 @@ import (
 	"strings"
 )
 
-// ffmpegArgs contains configuration for BuildFFmpegArgs
 type ffmpegArgs struct {
-	// Common fields
-	logLevel string
-	encoder  string
-	preset   string
-
-	// Preprocessing (writeToFIFO) fields - when source is set
-	source         string
-	overlay        OverlaySettings
-	startTimestamp string
-	subtitleFile   string
-
-	// Streaming (readFromFIFO) fields - when fifoPath is set
+	logLevel         string
+	encoder          string
+	preset           string
+	source           string
+	overlay          OverlaySettings
+	startTimestamp   string
+	subtitleFile     string
 	fifoPath         string
 	destination      string
 	username         string
@@ -62,21 +56,36 @@ func buildPreprocessingArgs(cfg ffmpegArgs) []string {
 	}
 	args = append(args, "-loglevel", logLevel)
 
-	// Determine if we need to re-encode for overlays
-	needsReencoding := cfg.overlay.ShowFilename || cfg.subtitleFile != ""
+	// Always re-encode to ensure compatibility and handle all processing here
+	// This includes overlays, subtitles, codec compatibility, and stream standardization
 
 	// Build and apply video filter if needed
 	if videoFilter := buildVideoFilter(cfg); videoFilter != "" {
 		args = append(args, "-vf", videoFilter, "-fps_mode", "vfr")
 	}
 
-	// Add encoding settings
-	if needsReencoding {
-		encoder, preset := getEncoderAndPreset(cfg.encoder, cfg.preset, "ultrafast")
-		args = append(args, "-c:v", encoder, "-preset", preset, "-crf", "18")
-		args = append(args, "-c:a", "copy")
+	// Always encode video with consistent settings for downstream compatibility
+	encoder, preset := getEncoderAndPreset(cfg.encoder, cfg.preset, "ultrafast")
+	args = append(args, "-c:v", encoder, "-preset", preset)
+
+	// Add keyframe settings if specified
+	if cfg.keyframeInterval != "" {
+		args = append(args, "-g", cfg.keyframeInterval, "-keyint_min", cfg.keyframeInterval)
+	}
+
+	// Add bitrate settings if specified
+	if cfg.maxBitrate != "" {
+		args = append(args, "-b:v", cfg.maxBitrate, "-maxrate", cfg.maxBitrate, "-bufsize", cfg.maxBitrate)
 	} else {
-		args = append(args, "-c", "copy")
+		args = append(args, "-crf", "18")
+	}
+
+	// Force consistent pixel format for compatibility
+	args = append(args, "-pix_fmt", "yuv420p")
+
+	// Only add audio encoding if the source file has audio
+	if cfg.probeInfo.hasAudio {
+		args = append(args, "-c:a", "aac", "-b:a", "128k", "-ac", "2")
 	}
 
 	args = append(args, "-f", "mpegts", "pipe:1")
@@ -90,44 +99,8 @@ func buildStreamingArgs(cfg ffmpegArgs) []string {
 	args := buildCommonArgs(cfg.logLevel)
 	args = append(args, "-progress", "pipe:1", "-re", "-y", "-i", cfg.fifoPath, "-fflags", "+igndts")
 
-	// Handle video encoding
-	needsVideoReencoding := cfg.keyframeInterval != "" || cfg.maxBitrate != "" || cfg.probeInfo.needsVideoReencoding
-
-	if needsVideoReencoding {
-		encoder, preset := getEncoderAndPreset(cfg.encoder, cfg.preset, "veryfast")
-		args = append(args, "-c:v", encoder, "-preset", preset)
-
-		// Force 8-bit output for compatibility when re-encoding due to codec issues
-		if cfg.probeInfo.needsVideoReencoding {
-			args = append(args, "-pix_fmt", "yuv420p")
-		}
-
-		// Add keyframe settings if specified
-		if cfg.keyframeInterval != "" {
-			args = append(args, "-g", cfg.keyframeInterval, "-keyint_min", cfg.keyframeInterval)
-		}
-
-		// Add bitrate settings if specified
-		if cfg.maxBitrate != "" {
-			args = append(args, "-b:v", cfg.maxBitrate, "-maxrate", cfg.maxBitrate, "-bufsize", cfg.maxBitrate)
-		} else {
-			args = append(args, "-crf", "23")
-		}
-	} else {
-		args = append(args, "-c:v", "copy")
-	}
-
-	// Handle stream mapping if needed
-	if cfg.probeInfo.needsExplicitMapping {
-		args = append(args, "-map", "0:v:0", "-map", "0:a:0")
-	}
-
-	// Handle audio encoding
-	if cfg.probeInfo.needsAudioReencoding {
-		args = append(args, "-c:a", "aac", "-b:a", "128k", "-ac", "2")
-	} else {
-		args = append(args, "-c:a", "aac", "-ac", "2")
-	}
+	// Use stream copy for both video and audio since all processing is done in writeToFIFO
+	args = append(args, "-c", "copy")
 
 	args = append(args, "-f", "flv", "-flvflags", "no_duration_filesize", dest)
 	return args

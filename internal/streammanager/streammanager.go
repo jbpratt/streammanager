@@ -306,14 +306,20 @@ func (s *StreamManager) writeToFIFO(ctx context.Context, source string, overlay 
 		return fmt.Errorf("subtitle validation failed: %w", err)
 	}
 
+	// Probe the source file to get audio information
+	probeInfo := probeFile(ctx, s.logger, source)
+
 	cfg := ffmpegArgs{
-		source:         source,
-		overlay:        overlay,
-		startTimestamp: startTimestamp,
-		subtitleFile:   subtitleFile,
-		logLevel:       s.config.LogLevel,
-		encoder:        s.config.Encoder,
-		preset:         s.config.Preset,
+		source:           source,
+		overlay:          overlay,
+		startTimestamp:   startTimestamp,
+		subtitleFile:     subtitleFile,
+		logLevel:         s.config.LogLevel,
+		encoder:          s.config.Encoder,
+		preset:           s.config.Preset,
+		keyframeInterval: s.config.KeyframeInterval,
+		maxBitrate:       s.config.MaxBitrate,
+		probeInfo:        probeInfo,
 	}
 
 	args := buildFFmpegArgs(cfg)
@@ -364,13 +370,6 @@ func (s *StreamManager) writeToFIFO(ctx context.Context, source string, overlay 
 }
 
 func (s *StreamManager) readFromFIFO(ctx context.Context, fifo string) error {
-	// Get the current source file for codec probing
-	var sourceFile string
-	s.mu.RLock()
-	if s.currentEntry != nil {
-		sourceFile = s.currentEntry.File
-	}
-	s.mu.RUnlock()
 	dest := s.config.Destination
 	if s.config.Username != "" && s.config.Password != "" {
 		if strings.HasPrefix(dest, "rtmp://") {
@@ -378,24 +377,12 @@ func (s *StreamManager) readFromFIFO(ctx context.Context, fifo string) error {
 		}
 	}
 
-	// Probe input file once to get all needed information
-	// Use source file instead of FIFO to avoid probing issues
-	var probeInfo fileProbeInfo
-	if sourceFile != "" {
-		probeInfo = probeFile(ctx, s.logger, sourceFile)
-	}
-
 	cfg := ffmpegArgs{
-		fifoPath:         fifo,
-		destination:      dest,
-		username:         s.config.Username,
-		password:         s.config.Password,
-		logLevel:         s.config.LogLevel,
-		encoder:          s.config.Encoder,
-		preset:           s.config.Preset,
-		keyframeInterval: s.config.KeyframeInterval,
-		maxBitrate:       s.config.MaxBitrate,
-		probeInfo:        probeInfo,
+		fifoPath:    fifo,
+		destination: dest,
+		username:    s.config.Username,
+		password:    s.config.Password,
+		logLevel:    s.config.LogLevel,
 	}
 
 	args := buildFFmpegArgs(cfg)
