@@ -1,3 +1,11 @@
+# Project Overview
+
+This is a livestream manager built on the back of Linux FIFO files and FFmpeg.
+An API is written in Go with two main processes - one looping over a queue and
+writing it to a FIFO, the other reading from the FIFO publishing to an RTMP
+endpoint. The idea is to allow FFmpeg to stream multiple files within a single
+process.
+
 # Build and Lint commands
 
 - Build: `go build .`
@@ -22,7 +30,7 @@
 
 # Feature development
 
-- ALWAYS try to write unit tests or end to end tests, adding to existing suites when possible
+- ALWAYS write unit tests or end to end tests, adding to existing suites when possible
 - Use `ffprobe` to determine information about video files when testing
 
 # Parallel Task Execution with Sub-Agents
