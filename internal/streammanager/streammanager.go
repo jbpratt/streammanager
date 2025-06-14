@@ -45,23 +45,22 @@ type Config struct {
 }
 
 type StreamManager struct {
-	config          Config
-	mu              sync.RWMutex
-	running         bool
-	ctx             context.Context
-	cancel          context.CancelFunc
-	logger          *zap.Logger
-	queue           []entry
-	queueNotify     chan struct{}
-	currentCtx      context.Context
-	currentCancel   context.CancelFunc
-	currentEntry    *entry
-	currentDuration float64 // Duration of currently processing file
-	lastError       string
-	lastErrorTime   time.Time
-	progressCh      chan progressData
-	fifoPath        string
-	fifo            io.WriteCloser
+	config        Config
+	mu            sync.RWMutex
+	running       bool
+	ctx           context.Context
+	cancel        context.CancelFunc
+	logger        *zap.Logger
+	queue         []entry
+	queueNotify   chan struct{}
+	currentCtx    context.Context
+	currentCancel context.CancelFunc
+	currentEntry  *entry
+	lastError     string
+	lastErrorTime time.Time
+	progressCh    chan progressData
+	fifoPath      string
+	fifo          io.WriteCloser
 }
 
 func New(logger *zap.Logger, fifoPath string) (*StreamManager, error) {
@@ -82,7 +81,6 @@ func (s *StreamManager) cleanup() {
 
 	s.running = false
 	s.currentEntry = nil
-	s.currentDuration = 0
 	if s.currentCancel != nil {
 		s.currentCancel()
 		s.currentCancel = nil
@@ -163,24 +161,11 @@ func (s *StreamManager) Run(ctx context.Context, cfg Config) error {
 				s.currentCtx, s.currentCancel = context.WithCancel(s.ctx)
 				s.mu.Unlock()
 
-				// Get file duration for progress tracking
-				duration, err := getFileDuration(s.currentCtx, entry.File)
-				if err != nil {
-					s.logger.Warn("Failed to get file duration for progress tracking",
-						zap.String("file", entry.File),
-						zap.Error(err))
-					duration = 0
-				}
-				s.mu.Lock()
-				s.currentDuration = duration // This will replace any previous file's duration
-				s.mu.Unlock()
-
 				s.logger.Info("Processing file",
 					zap.String("file", entry.File),
 					zap.String("id", entry.ID),
 					zap.String("startTimestamp", entry.StartTimestamp),
-					zap.String("subtitleFile", entry.SubtitleFile),
-					zap.Float64("duration", duration))
+					zap.String("subtitleFile", entry.SubtitleFile))
 				if err := s.writeToFIFO(s.currentCtx, entry.File, entry.Overlay, entry.StartTimestamp, entry.SubtitleFile); err != nil {
 					if errors.Is(err, context.Canceled) {
 						s.logger.Info("Processing of file was cancelled",
@@ -195,8 +180,6 @@ func (s *StreamManager) Run(ctx context.Context, cfg Config) error {
 					}
 					s.mu.Lock()
 					s.currentEntry = nil
-					// Reset duration on error since no data was written to FIFO
-					s.currentDuration = 0
 					s.currentCancel = nil
 					s.mu.Unlock()
 					continue
@@ -205,8 +188,6 @@ func (s *StreamManager) Run(ctx context.Context, cfg Config) error {
 				s.logger.Info("Successfully wrote file to fifo", zap.String("file", entry.File))
 				s.mu.Lock()
 				s.currentEntry = nil
-				// Keep currentDuration available for progress calculation until next file starts
-				// s.currentDuration = 0  // Don't reset immediately
 				s.currentCancel = nil
 				s.mu.Unlock()
 			}
@@ -452,11 +433,8 @@ func (s *StreamManager) readFromFIFO(ctx context.Context, fifo string) error {
 	}
 
 	// Start a goroutine to parse progress data
-	go parseProgress(ctx, stdout, s.progressCh, func() float64 {
-		s.mu.RLock()
-		defer s.mu.RUnlock()
-		return s.currentDuration
-	})
+	go parseProgress(ctx, stdout, s.progressCh)
+
 	err = cmd.Wait()
 	if err != nil {
 		if ctx.Err() != nil {

@@ -48,34 +48,16 @@ export default class ProgressManager {
       timestamp: progress.timestamp
         ? new Date(progress.timestamp).toLocaleTimeString()
         : "-",
-      percentage: progress.percentage
-        ? progress.percentage.toFixed(1) + "%"
-        : "-",
-      duration: progress.duration
-        ? this.formatDuration(progress.duration)
-        : "-",
     };
   }
 
   calculateProgressPercentage(progress) {
-    // Use accurate percentage from backend if available
-    if (progress.percentage !== undefined && progress.percentage >= 0) {
-      return Math.min(Math.max(progress.percentage, 0), 100);
+    // This is a rough estimation - in a real scenario you'd need total duration
+    if (progress.frame && progress.fps) {
+      const estimatedTotalFrames = progress.fps * 300; // Assume 5 min video max for demo
+      return Math.min((progress.frame / estimatedTotalFrames) * 100, 100);
     }
     return 0;
-  }
-
-  formatDuration(seconds) {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-
-    if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, "0")}:${
-        secs.toString().padStart(2, "0")
-      }`;
-    }
-    return `${minutes}:${secs.toString().padStart(2, "0")}`;
   }
 
   isRunning() {

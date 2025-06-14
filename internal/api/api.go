@@ -324,20 +324,12 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 	}
 
 	progress, hasProgress := s.sm.GetLatestProgress()
-	status := s.sm.Status()
-
-	response := map[string]any{
-		"hasProgress": hasProgress,
-		"progress":    progress,
-	}
-
-	// Enhanced file tracking - include both current queue position and progress file info
-	if currentFile, exists := status["playing"]; exists {
-		response["currentFile"] = currentFile
-	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
+	if err := json.NewEncoder(w).Encode(map[string]any{
+		"hasProgress": hasProgress,
+		"progress":    progress,
+	}); err != nil {
 		s.logger.Error("Failed to encode progress response", zap.Error(err))
 	}
 }

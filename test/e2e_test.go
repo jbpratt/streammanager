@@ -199,17 +199,13 @@ func TestEndToEnd(t *testing.T) {
 		}
 	})
 
-	// Test 4: Check progress updates during processing with enhanced validation
+	// Test 4: Check progress updates during processing
 	t.Run("check_progress", func(t *testing.T) {
 		// Wait for processing to start
 		time.Sleep(2 * time.Second)
 
 		progressUpdates := 0
 		maxChecks := 20
-		var lastPercentage float64 = -1
-		var lastFrame int64 = -1
-		percentageIncreased := false
-		frameIncreased := false
 
 		for range maxChecks {
 			resp, err := http.Get("http://localhost:8081/progress")
@@ -232,62 +228,24 @@ func TestEndToEnd(t *testing.T) {
 				progressUpdates++
 				progress := progressResp["progress"].(map[string]any)
 
-				// Validate required progress data fields
-				requiredFields := []string{"frame", "fps", "timestamp", "duration", "percentage"}
-				for _, field := range requiredFields {
-					if _, ok := progress[field]; !ok {
-						t.Fatalf("Expected %s field in progress data", field)
-					}
+				// Validate progress data structure
+				if _, ok := progress["frame"]; !ok {
+					t.Fatal("Expected frame field in progress data")
+				}
+				if _, ok := progress["fps"]; !ok {
+					t.Fatal("Expected fps field in progress data")
+				}
+				if _, ok := progress["timestamp"]; !ok {
+					t.Fatal("Expected timestamp field in progress data")
 				}
 
-				// Extract and validate progress values
-				frame := int64(progress["frame"].(float64))
-				fps := progress["fps"].(float64)
-				duration := progress["duration"].(float64)
-				percentage := progress["percentage"].(float64)
-
-				// Validate data types and ranges
-				if frame < 0 {
-					t.Fatal("Frame count should not be negative")
-				}
-				if fps < 0 {
-					t.Fatal("FPS should not be negative")
-				}
-				if duration < 0 {
-					t.Fatal("Duration should not be negative")
-				}
-				if percentage < 0 || percentage > 100 {
-					t.Fatalf("Percentage should be between 0-100, got %.2f", percentage)
-				}
-
-				// Check if values are increasing (indicating progress)
-				if lastPercentage >= 0 && percentage > lastPercentage {
-					percentageIncreased = true
-					logger.Info("Progress percentage increased",
-						zap.Float64("from", lastPercentage),
-						zap.Float64("to", percentage))
-				}
-				if lastFrame >= 0 && frame > lastFrame {
-					frameIncreased = true
-				}
-
-				// Log comprehensive progress details
+				// Log progress details
 				logger.Info("Progress update received",
-					zap.Int64("frame", frame),
-					zap.Float64("fps", fps),
+					zap.Int64("frame", int64(progress["frame"].(float64))),
+					zap.Float64("fps", progress["fps"].(float64)),
 					zap.String("bitrate", progress["bitrate"].(string)),
 					zap.String("out_time", progress["out_time"].(string)),
-					zap.String("speed", progress["speed"].(string)),
-					zap.Float64("duration", duration),
-					zap.Float64("percentage", percentage))
-
-				lastPercentage = percentage
-				lastFrame = frame
-
-				// If we've seen good progress data, we can break early
-				if progressUpdates >= 3 && (percentageIncreased || frameIncreased) {
-					break
-				}
+					zap.String("speed", progress["speed"].(string)))
 			}
 
 			time.Sleep(500 * time.Millisecond)
@@ -297,16 +255,11 @@ func TestEndToEnd(t *testing.T) {
 			t.Fatal("Expected to receive at least one progress update")
 		}
 
-		// Validate that we're seeing actual progress
-		if progressUpdates >= 2 && !percentageIncreased && !frameIncreased {
-			logger.Warn("Progress values did not increase - may indicate very short video or processing completed quickly")
-		}
+		logger.Info("Progress validation completed", zap.Int("total_updates", progressUpdates))
+	})
 
-		logger.Info("Enhanced progress validation completed",
-			zap.Int("total_updates", progressUpdates),
-			zap.Bool("percentage_increased", percentageIncreased),
-			zap.Bool("frame_increased", frameIncreased))
-
+	// Test 5: Let it process for a bit then stop
+	t.Run("process_and_stop", func(t *testing.T) {
 		// Let it process for 5 more seconds after progress check
 		logger.Info("Letting file process for 5 more seconds")
 		time.Sleep(5 * time.Second)
