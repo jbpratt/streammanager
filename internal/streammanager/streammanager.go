@@ -353,7 +353,7 @@ func (s *StreamManager) writeToFIFO(ctx context.Context, source string, overlay 
 		cmd.Stderr = io.MultiWriter(&stderrBuf, preprocessingWriter)
 	}
 
-	s.logger.Debug("Running ffmpeg write command", zap.Stringer("cmd", cmd))
+	s.logger.Info("Running ffmpeg write command", zap.Stringer("cmd", cmd), zap.String("log", logFile.Name()))
 
 	err = cmd.Run()
 	if err != nil {
@@ -426,7 +426,7 @@ func (s *StreamManager) readFromFIFO(ctx context.Context, fifo string) error {
 		return fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 
-	s.logger.Debug("Running ffmpeg read command", zap.Stringer("cmd", cmd))
+	s.logger.Info("Running ffmpeg read command", zap.Stringer("cmd", cmd), zap.String("log", logFile.Name()))
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start ffmpeg: %w", err)
