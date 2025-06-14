@@ -256,10 +256,7 @@ func TestEndToEnd(t *testing.T) {
 		}
 
 		logger.Info("Progress validation completed", zap.Int("total_updates", progressUpdates))
-	})
 
-	// Test 5: Let it process for a bit then stop
-	t.Run("process_and_stop", func(t *testing.T) {
 		// Let it process for 5 more seconds after progress check
 		logger.Info("Letting file process for 5 more seconds")
 		time.Sleep(5 * time.Second)
