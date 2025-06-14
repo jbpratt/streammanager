@@ -97,7 +97,7 @@ func buildStreamingArgs(cfg ffmpegArgs) []string {
 	dest := buildDestination(cfg.destination, cfg.username, cfg.password)
 
 	args := buildCommonArgs(cfg.logLevel)
-	args = append(args, "-progress", "pipe:1", "-re", "-y", "-i", cfg.fifoPath, "-fflags", "+igndts")
+	args = append(args, "-progress", "pipe:1", "-y", "-i", cfg.fifoPath, "-fflags", "+igndts")
 
 	// Use stream copy for both video and audio since all processing is done in writeToFIFO
 	args = append(args, "-c", "copy")
