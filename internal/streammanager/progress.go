@@ -21,6 +21,8 @@ type progressData struct {
 	Speed      string    `json:"speed"`
 	Progress   string    `json:"progress"`
 	Timestamp  time.Time `json:"timestamp"`
+	Duration   float64   `json:"duration"`   // Total file duration in seconds
+	Percentage float64   `json:"percentage"` // Progress percentage (0-100)
 }
 
 func parseProgressData(body string) progressData {
@@ -81,7 +83,7 @@ func parseProgressData(body string) progressData {
 	return data
 }
 
-func parseProgress(ctx context.Context, r io.Reader, out chan progressData) {
+func parseProgress(ctx context.Context, r io.Reader, out chan progressData, getDuration func() float64) {
 	scanner := bufio.NewScanner(r)
 	var progressBuffer strings.Builder
 
@@ -98,6 +100,19 @@ func parseProgress(ctx context.Context, r io.Reader, out chan progressData) {
 		if strings.HasPrefix(line, "progress=") {
 			if progressBuffer.Len() > 0 {
 				data := parseProgressData(progressBuffer.String())
+
+				// Get current duration and calculate percentage
+				duration := getDuration()
+				data.Duration = duration
+
+				if duration > 0 && data.OutTimeUs > 0 {
+					currentTimeSeconds := float64(data.OutTimeUs) / 1000000.0 // Convert microseconds to seconds
+					data.Percentage = (currentTimeSeconds / duration) * 100.0
+					if data.Percentage > 100 {
+						data.Percentage = 100
+					}
+				}
+
 				select {
 				case out <- data:
 				case <-ctx.Done():
