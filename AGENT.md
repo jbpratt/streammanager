@@ -26,7 +26,7 @@ process.
 - Types: Prefer composition over inheritance, use interfaces for abstraction
 - Comments: Document exported functions and types with meaningful comments
 - Error messages: Start with lowercase, be specific and actionable
-- Commits: ALWAYS make Amp the author of the commit when asked to commit something (use the `--author` flag). Never `git add .`, ALWAYS add specific files changed
+- Commits: ALWAYS make Amp the author of the commit when asked to commit something (use the `--author` flag). Never `git add .`, ONLY stage newly created files or modified files
 
 # Feature development
 
