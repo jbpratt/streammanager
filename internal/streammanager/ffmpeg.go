@@ -102,7 +102,12 @@ func buildStreamingArgs(cfg ffmpegArgs) []string {
 	// Use stream copy for both video and audio since all processing is done in writeToFIFO
 	args = append(args, "-c", "copy")
 
-	args = append(args, "-f", "flv", "-flvflags", "no_duration_filesize", "-flush_packets", "1", dest)
+	args = append(args,
+		"-f", "flv",
+		"-flvflags", "no_duration_filesize",
+		"-flush_packets", "1",
+		"-rtmp_live", "live",
+		dest)
 	return args
 }
 
